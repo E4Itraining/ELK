@@ -1,0 +1,34 @@
+curl -X PUT "http://localhost:9200/industrial-events-000001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1
+    },
+    "mappings": {
+      "dynamic": "true",
+      "properties": {
+        "@timestamp": { "type": "date" },
+
+        "message": { "type": "text" },
+
+        "service": { "type": "keyword" },
+        "line":    { "type": "keyword" },
+        "scenario":{ "type": "keyword" },
+        "shift":   { "type": "keyword" },
+
+        "level":   { "type": "keyword" },
+        "host":    { "type": "keyword" },
+
+        "event_type": { "type": "keyword" },   // ex: "scada", "http", "batch"
+        "status":     { "type": "keyword" },   // ex: "ok", "warning", "error"
+
+        "duration_ms": { "type": "float" },
+        "error_code":  { "type": "keyword" },
+
+        "tags": {
+          "type": "keyword"
+        }
+      }
+    }
+  }'
