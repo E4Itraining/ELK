@@ -1,6 +1,6 @@
 1) index cible
 
-POST industrial-events-v2
+PUT industrial-events-v2
 {
   "settings": {
     "number_of_shards": 1,
