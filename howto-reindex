@@ -1,0 +1,41 @@
+1) index cible
+
+POST industrial-events-v2
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+
+      "message":    { "type": "text"  },
+
+      "service":    { "type": "keyword" },
+      "line":       { "type": "keyword" },
+      "scenario":   { "type": "keyword" },
+      "shift":      { "type": "keyword" },
+
+      "level":      { "type": "keyword" },
+      "host":       { "type": "keyword" },
+
+      "event_type": { "type": "keyword" },
+      "status":     { "type": "keyword" },
+
+      "duration_ms": { "type": "float" },
+      "error_code":  { "type": "keyword" }
+    }
+  }
+}
+2) lancer la reindexation
+
+POST _reindex
+{
+  "source": {
+    "index": "industrial-events-old"
+  },
+  "dest": {
+    "index": "industrial-events-v2"
+  }
+}
