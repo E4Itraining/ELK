@@ -1,0 +1,12 @@
+# ELK Upgrade Audit Tool - Dependencies
+# =====================================
+
+# Elasticsearch client
+elasticsearch>=8.0.0,<9.0.0
+
+# Configuration management
+pyyaml>=6.0
+
+# Optional: For enhanced CLI features
+# rich>=13.0.0  # For better terminal output
+# click>=8.0.0  # Alternative CLI framework

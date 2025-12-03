@@ -1,0 +1,77 @@
+# ELK Upgrade Audit Tool - Configuration
+# ========================================
+
+elasticsearch:
+  # Connection settings
+  hosts:
+    - "https://localhost:9200"
+  # Authentication (optional)
+  username: "elastic"
+  password: ""
+  # SSL/TLS settings
+  verify_certs: true
+  ca_certs: ""
+  # Timeout settings (seconds)
+  timeout: 30
+  max_retries: 3
+
+# Cluster information
+cluster:
+  name: "elk-cluster"
+  environment: "production"  # production, staging, development
+
+# Upgrade settings
+upgrade:
+  # Target version for upgrade
+  target_version: "8.11.0"
+  # Current version (auto-detected if empty)
+  current_version: ""
+  # Rolling upgrade strategy
+  strategy: "rolling"  # rolling, full-cluster-restart
+
+# Audit settings
+audit:
+  # Output directory for reports
+  reports_dir: "./reports"
+  # Report format
+  format: "html"  # html, json, markdown
+  # Checks to perform
+  checks:
+    cluster_health: true
+    node_info: true
+    index_health: true
+    shard_allocation: true
+    deprecation_warnings: true
+    plugin_compatibility: true
+    mapping_analysis: true
+    snapshot_status: true
+    disk_usage: true
+    memory_usage: true
+
+# Snapshot/Backup settings
+snapshot:
+  repository: "elk-backup"
+  # S3, GCS, Azure, FS
+  type: "fs"
+  location: "/mnt/elasticsearch-backups"
+  # Pre-upgrade snapshot name pattern
+  name_pattern: "pre-upgrade-{date}"
+
+# Alerting (optional)
+alerting:
+  enabled: false
+  # Slack webhook URL
+  slack_webhook: ""
+  # Email settings
+  email:
+    smtp_server: ""
+    smtp_port: 587
+    from_address: ""
+    to_addresses: []
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "./logs/elk-audit.log"
+  max_size_mb: 100
+  backup_count: 5
