@@ -1,0 +1,396 @@
+{
+  "index_patterns": ["ai-devops-metrics-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "ai-metrics-policy",
+      "index.lifecycle.rollover_alias": "ai-devops-metrics",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "event_type": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "environment": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "region": {
+          "type": "keyword"
+        },
+        "deployment": {
+          "properties": {
+            "id": {
+              "type": "keyword"
+            },
+            "version": {
+              "type": "keyword"
+            },
+            "previous_version": {
+              "type": "keyword"
+            },
+            "model": {
+              "type": "keyword"
+            },
+            "model_version": {
+              "type": "keyword"
+            },
+            "status": {
+              "type": "keyword"
+            },
+            "strategy": {
+              "type": "keyword"
+            },
+            "started_at": {
+              "type": "date"
+            },
+            "completed_at": {
+              "type": "date"
+            },
+            "duration_seconds": {
+              "type": "float"
+            },
+            "triggered_by": {
+              "type": "keyword"
+            },
+            "commit_sha": {
+              "type": "keyword"
+            },
+            "rollback": {
+              "type": "boolean"
+            },
+            "rollback_reason": {
+              "type": "keyword"
+            }
+          }
+        },
+        "canary": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "traffic_percentage": {
+              "type": "float"
+            },
+            "success_rate": {
+              "type": "float"
+            },
+            "latency_p50": {
+              "type": "float"
+            },
+            "latency_p95": {
+              "type": "float"
+            },
+            "error_rate": {
+              "type": "float"
+            },
+            "promoted": {
+              "type": "boolean"
+            },
+            "promotion_criteria_met": {
+              "type": "boolean"
+            }
+          }
+        },
+        "scaling": {
+          "properties": {
+            "event_type": {
+              "type": "keyword"
+            },
+            "current_replicas": {
+              "type": "integer"
+            },
+            "desired_replicas": {
+              "type": "integer"
+            },
+            "min_replicas": {
+              "type": "integer"
+            },
+            "max_replicas": {
+              "type": "integer"
+            },
+            "trigger": {
+              "type": "keyword"
+            },
+            "metric_value": {
+              "type": "float"
+            },
+            "metric_threshold": {
+              "type": "float"
+            },
+            "cooldown_remaining": {
+              "type": "integer"
+            }
+          }
+        },
+        "health": {
+          "properties": {
+            "status": {
+              "type": "keyword"
+            },
+            "liveness_check": {
+              "type": "boolean"
+            },
+            "readiness_check": {
+              "type": "boolean"
+            },
+            "startup_check": {
+              "type": "boolean"
+            },
+            "consecutive_failures": {
+              "type": "integer"
+            },
+            "last_success": {
+              "type": "date"
+            },
+            "response_time_ms": {
+              "type": "float"
+            }
+          }
+        },
+        "availability": {
+          "properties": {
+            "uptime_percentage": {
+              "type": "float"
+            },
+            "downtime_seconds": {
+              "type": "integer"
+            },
+            "sla_target": {
+              "type": "float"
+            },
+            "sla_met": {
+              "type": "boolean"
+            },
+            "mttr_seconds": {
+              "type": "integer"
+            },
+            "mtbf_seconds": {
+              "type": "integer"
+            },
+            "incident_count": {
+              "type": "integer"
+            }
+          }
+        },
+        "infrastructure": {
+          "properties": {
+            "instance_id": {
+              "type": "keyword"
+            },
+            "instance_type": {
+              "type": "keyword"
+            },
+            "availability_zone": {
+              "type": "keyword"
+            },
+            "cluster_name": {
+              "type": "keyword"
+            },
+            "namespace": {
+              "type": "keyword"
+            },
+            "pod_name": {
+              "type": "keyword"
+            },
+            "container_id": {
+              "type": "keyword"
+            },
+            "node_name": {
+              "type": "keyword"
+            }
+          }
+        },
+        "resources": {
+          "properties": {
+            "cpu": {
+              "properties": {
+                "usage_percent": {
+                  "type": "float"
+                },
+                "limit_cores": {
+                  "type": "float"
+                },
+                "request_cores": {
+                  "type": "float"
+                },
+                "throttled_seconds": {
+                  "type": "float"
+                }
+              }
+            },
+            "memory": {
+              "properties": {
+                "usage_bytes": {
+                  "type": "long"
+                },
+                "usage_percent": {
+                  "type": "float"
+                },
+                "limit_bytes": {
+                  "type": "long"
+                },
+                "request_bytes": {
+                  "type": "long"
+                },
+                "oom_killed": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "gpu": {
+              "properties": {
+                "usage_percent": {
+                  "type": "float"
+                },
+                "memory_usage_bytes": {
+                  "type": "long"
+                },
+                "memory_total_bytes": {
+                  "type": "long"
+                },
+                "temperature_celsius": {
+                  "type": "float"
+                },
+                "power_watts": {
+                  "type": "float"
+                },
+                "gpu_type": {
+                  "type": "keyword"
+                },
+                "cuda_version": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "network": {
+              "properties": {
+                "rx_bytes": {
+                  "type": "long"
+                },
+                "tx_bytes": {
+                  "type": "long"
+                },
+                "rx_errors": {
+                  "type": "integer"
+                },
+                "tx_errors": {
+                  "type": "integer"
+                },
+                "connections_active": {
+                  "type": "integer"
+                }
+              }
+            },
+            "disk": {
+              "properties": {
+                "usage_bytes": {
+                  "type": "long"
+                },
+                "usage_percent": {
+                  "type": "float"
+                },
+                "iops_read": {
+                  "type": "integer"
+                },
+                "iops_write": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "queue": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "depth": {
+              "type": "integer"
+            },
+            "oldest_message_age_seconds": {
+              "type": "integer"
+            },
+            "processing_rate": {
+              "type": "float"
+            },
+            "dead_letter_count": {
+              "type": "integer"
+            }
+          }
+        },
+        "circuit_breaker": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "state": {
+              "type": "keyword"
+            },
+            "failure_count": {
+              "type": "integer"
+            },
+            "success_count": {
+              "type": "integer"
+            },
+            "last_failure": {
+              "type": "date"
+            },
+            "reset_timeout_seconds": {
+              "type": "integer"
+            }
+          }
+        },
+        "incident": {
+          "properties": {
+            "id": {
+              "type": "keyword"
+            },
+            "severity": {
+              "type": "keyword"
+            },
+            "status": {
+              "type": "keyword"
+            },
+            "started_at": {
+              "type": "date"
+            },
+            "resolved_at": {
+              "type": "date"
+            },
+            "duration_seconds": {
+              "type": "integer"
+            },
+            "root_cause": {
+              "type": "keyword"
+            },
+            "affected_services": {
+              "type": "keyword"
+            },
+            "impact_users": {
+              "type": "integer"
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Template for AI DevOps metrics - deployment, scaling, availability, resources",
+    "version": "1.0.0",
+    "created_by": "ai-monitoring-platform"
+  }
+}

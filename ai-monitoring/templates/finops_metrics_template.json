@@ -1,0 +1,259 @@
+{
+  "index_patterns": ["ai-finops-metrics-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "ai-metrics-policy",
+      "index.lifecycle.rollover_alias": "ai-finops-metrics",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "provider": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "model": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "environment": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "tokens": {
+          "properties": {
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            },
+            "cached": {
+              "type": "integer"
+            },
+            "reasoning": {
+              "type": "integer"
+            }
+          }
+        },
+        "cost": {
+          "properties": {
+            "input_cost": {
+              "type": "float"
+            },
+            "output_cost": {
+              "type": "float"
+            },
+            "total_cost": {
+              "type": "float"
+            },
+            "currency": {
+              "type": "keyword"
+            },
+            "cached_savings": {
+              "type": "float"
+            },
+            "optimization_savings": {
+              "type": "float"
+            }
+          }
+        },
+        "budget": {
+          "properties": {
+            "daily_budget": {
+              "type": "float"
+            },
+            "daily_spent": {
+              "type": "float"
+            },
+            "daily_remaining": {
+              "type": "float"
+            },
+            "weekly_budget": {
+              "type": "float"
+            },
+            "weekly_spent": {
+              "type": "float"
+            },
+            "monthly_budget": {
+              "type": "float"
+            },
+            "monthly_spent": {
+              "type": "float"
+            },
+            "budget_exceeded": {
+              "type": "boolean"
+            },
+            "budget_alert_level": {
+              "type": "keyword"
+            }
+          }
+        },
+        "allocation": {
+          "properties": {
+            "team": {
+              "type": "keyword"
+            },
+            "project": {
+              "type": "keyword"
+            },
+            "department": {
+              "type": "keyword"
+            },
+            "cost_center": {
+              "type": "keyword"
+            },
+            "environment": {
+              "type": "keyword"
+            },
+            "user_id": {
+              "type": "keyword"
+            },
+            "application": {
+              "type": "keyword"
+            },
+            "use_case": {
+              "type": "keyword"
+            }
+          }
+        },
+        "optimization": {
+          "properties": {
+            "cache_hit": {
+              "type": "boolean"
+            },
+            "cache_savings": {
+              "type": "float"
+            },
+            "prompt_compressed": {
+              "type": "boolean"
+            },
+            "compression_ratio": {
+              "type": "float"
+            },
+            "model_fallback": {
+              "type": "boolean"
+            },
+            "original_model": {
+              "type": "keyword"
+            },
+            "fallback_model": {
+              "type": "keyword"
+            },
+            "fallback_savings": {
+              "type": "float"
+            },
+            "batch_processed": {
+              "type": "boolean"
+            },
+            "batch_size": {
+              "type": "integer"
+            }
+          }
+        },
+        "roi": {
+          "properties": {
+            "business_value": {
+              "type": "float"
+            },
+            "value_category": {
+              "type": "keyword"
+            },
+            "conversion": {
+              "type": "boolean"
+            },
+            "revenue_impact": {
+              "type": "float"
+            },
+            "cost_avoidance": {
+              "type": "float"
+            },
+            "time_saved_minutes": {
+              "type": "float"
+            },
+            "roi_ratio": {
+              "type": "float"
+            }
+          }
+        },
+        "pricing": {
+          "properties": {
+            "input_rate_per_1k": {
+              "type": "float"
+            },
+            "output_rate_per_1k": {
+              "type": "float"
+            },
+            "pricing_tier": {
+              "type": "keyword"
+            },
+            "discount_applied": {
+              "type": "float"
+            },
+            "commitment_discount": {
+              "type": "boolean"
+            }
+          }
+        },
+        "usage_pattern": {
+          "properties": {
+            "hour_of_day": {
+              "type": "integer"
+            },
+            "day_of_week": {
+              "type": "integer"
+            },
+            "is_peak_hour": {
+              "type": "boolean"
+            },
+            "request_frequency": {
+              "type": "keyword"
+            }
+          }
+        },
+        "forecast": {
+          "properties": {
+            "predicted_daily_cost": {
+              "type": "float"
+            },
+            "predicted_monthly_cost": {
+              "type": "float"
+            },
+            "trend": {
+              "type": "keyword"
+            },
+            "anomaly_detected": {
+              "type": "boolean"
+            },
+            "anomaly_score": {
+              "type": "float"
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Template for AI FinOps metrics - costs, budget, ROI, optimization",
+    "version": "1.0.0",
+    "created_by": "ai-monitoring-platform"
+  }
+}

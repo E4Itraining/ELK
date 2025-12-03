@@ -1,0 +1,234 @@
+{
+  "index_patterns": ["ai-technical-metrics-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "ai-metrics-policy",
+      "index.lifecycle.rollover_alias": "ai-technical-metrics",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "span_id": {
+          "type": "keyword"
+        },
+        "provider": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "model": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "model_version": {
+          "type": "keyword"
+        },
+        "endpoint": {
+          "type": "keyword"
+        },
+        "operation": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "environment": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "region": {
+          "type": "keyword"
+        },
+        "latency": {
+          "properties": {
+            "total_ms": {
+              "type": "float"
+            },
+            "time_to_first_token_ms": {
+              "type": "float"
+            },
+            "inference_ms": {
+              "type": "float"
+            },
+            "network_ms": {
+              "type": "float"
+            },
+            "queue_ms": {
+              "type": "float"
+            },
+            "preprocessing_ms": {
+              "type": "float"
+            },
+            "postprocessing_ms": {
+              "type": "float"
+            }
+          }
+        },
+        "throughput": {
+          "properties": {
+            "tokens_per_second": {
+              "type": "float"
+            },
+            "requests_per_minute": {
+              "type": "float"
+            },
+            "concurrent_requests": {
+              "type": "integer"
+            }
+          }
+        },
+        "tokens": {
+          "properties": {
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            },
+            "cached": {
+              "type": "integer"
+            }
+          }
+        },
+        "status": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "error": {
+          "properties": {
+            "type": {
+              "type": "keyword"
+            },
+            "code": {
+              "type": "keyword"
+            },
+            "message": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retry_count": {
+              "type": "integer"
+            }
+          }
+        },
+        "rate_limit": {
+          "properties": {
+            "limited": {
+              "type": "boolean"
+            },
+            "remaining_requests": {
+              "type": "integer"
+            },
+            "remaining_tokens": {
+              "type": "integer"
+            },
+            "reset_at": {
+              "type": "date"
+            }
+          }
+        },
+        "cache": {
+          "properties": {
+            "hit": {
+              "type": "boolean"
+            },
+            "key": {
+              "type": "keyword"
+            },
+            "ttl_seconds": {
+              "type": "integer"
+            }
+          }
+        },
+        "streaming": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "chunks_count": {
+              "type": "integer"
+            },
+            "first_chunk_ms": {
+              "type": "float"
+            },
+            "last_chunk_ms": {
+              "type": "float"
+            }
+          }
+        },
+        "context": {
+          "properties": {
+            "team": {
+              "type": "keyword"
+            },
+            "project": {
+              "type": "keyword"
+            },
+            "application": {
+              "type": "keyword"
+            },
+            "user_id": {
+              "type": "keyword"
+            },
+            "session_id": {
+              "type": "keyword"
+            }
+          }
+        },
+        "infrastructure": {
+          "properties": {
+            "host": {
+              "type": "keyword"
+            },
+            "instance_type": {
+              "type": "keyword"
+            },
+            "availability_zone": {
+              "type": "keyword"
+            },
+            "container_id": {
+              "type": "keyword"
+            },
+            "pod_name": {
+              "type": "keyword"
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Template for AI technical metrics - latency, throughput, errors",
+    "version": "1.0.0",
+    "created_by": "ai-monitoring-platform"
+  }
+}

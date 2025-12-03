@@ -1,0 +1,368 @@
+# AI Monitoring & Observability Platform Configuration
+# =====================================================
+# Comprehensive monitoring for AI systems across technical, cognitive,
+# FinOps, DevOps, and compliance dimensions.
+
+elasticsearch:
+  hosts:
+    - "https://localhost:9200"
+  username: "elastic"
+  password: "${ES_PASSWORD}"  # Use environment variable
+  ca_certs: "${ES_CA_CERTS}"
+  verify_certs: true
+  ssl_show_warn: true
+  timeout: 30
+  max_retries: 3
+
+# Kibana connection for dashboard management
+kibana:
+  host: "http://localhost:5601"
+  username: "elastic"
+  password: "${KIBANA_PASSWORD}"
+
+# AI Provider configurations
+ai_providers:
+  openai:
+    enabled: true
+    api_key: "${OPENAI_API_KEY}"
+    models:
+      - "gpt-4"
+      - "gpt-4-turbo"
+      - "gpt-3.5-turbo"
+    cost_per_1k_tokens:
+      gpt-4:
+        input: 0.03
+        output: 0.06
+      gpt-4-turbo:
+        input: 0.01
+        output: 0.03
+      gpt-3.5-turbo:
+        input: 0.0005
+        output: 0.0015
+
+  anthropic:
+    enabled: true
+    api_key: "${ANTHROPIC_API_KEY}"
+    models:
+      - "claude-3-opus"
+      - "claude-3-sonnet"
+      - "claude-3-haiku"
+    cost_per_1k_tokens:
+      claude-3-opus:
+        input: 0.015
+        output: 0.075
+      claude-3-sonnet:
+        input: 0.003
+        output: 0.015
+      claude-3-haiku:
+        input: 0.00025
+        output: 0.00125
+
+  azure_openai:
+    enabled: false
+    endpoint: "${AZURE_OPENAI_ENDPOINT}"
+    api_key: "${AZURE_OPENAI_KEY}"
+    api_version: "2024-02-15-preview"
+
+  local_llm:
+    enabled: false
+    endpoint: "http://localhost:8080"
+    models:
+      - "llama-2-70b"
+      - "mistral-7b"
+
+# Technical Monitoring Configuration
+technical:
+  enabled: true
+  index_prefix: "ai-technical-metrics"
+
+  # Latency thresholds (milliseconds)
+  latency:
+    p50_warning: 500
+    p50_critical: 1000
+    p95_warning: 2000
+    p95_critical: 5000
+    p99_warning: 5000
+    p99_critical: 10000
+
+  # Throughput monitoring
+  throughput:
+    min_requests_per_minute: 10
+    max_requests_per_minute: 10000
+
+  # Error rate thresholds (percentage)
+  error_rate:
+    warning: 1.0
+    critical: 5.0
+
+  # Availability SLA targets
+  availability:
+    target_percentage: 99.9
+    measurement_window: "24h"
+
+# Cognitive Monitoring Configuration
+cognitive:
+  enabled: true
+  index_prefix: "ai-cognitive-metrics"
+
+  # Quality evaluation settings
+  quality:
+    enabled: true
+    evaluation_sample_rate: 0.1  # Evaluate 10% of responses
+    min_quality_score: 0.7
+
+  # Hallucination detection
+  hallucination:
+    enabled: true
+    detection_model: "internal"  # or "external"
+    confidence_threshold: 0.8
+    alert_on_detection: true
+
+  # Bias detection
+  bias:
+    enabled: true
+    categories:
+      - gender
+      - race
+      - age
+      - religion
+      - political
+    threshold: 0.3
+
+  # Toxicity detection
+  toxicity:
+    enabled: true
+    threshold: 0.5
+    categories:
+      - hate_speech
+      - harassment
+      - violence
+      - sexual_content
+      - self_harm
+
+  # Sentiment analysis
+  sentiment:
+    enabled: true
+    track_trends: true
+
+# FinOps Configuration
+finops:
+  enabled: true
+  index_prefix: "ai-finops-metrics"
+
+  # Budget management
+  budget:
+    daily_limit: 1000.0  # USD
+    weekly_limit: 5000.0
+    monthly_limit: 15000.0
+    alert_at_percentage: [50, 75, 90, 100]
+
+  # Cost allocation
+  cost_allocation:
+    track_by:
+      - team
+      - project
+      - environment
+      - user
+      - model
+
+  # Token optimization
+  optimization:
+    enabled: true
+    cache_similar_queries: true
+    cache_ttl_seconds: 3600
+    compression_enabled: true
+
+  # ROI tracking
+  roi:
+    track_business_value: true
+    value_per_successful_interaction: 5.0
+
+# DevOps Configuration
+devops:
+  enabled: true
+  index_prefix: "ai-devops-metrics"
+
+  # Deployment tracking
+  deployment:
+    track_versions: true
+    track_rollbacks: true
+    canary_analysis: true
+
+  # Scaling configuration
+  scaling:
+    auto_scale_enabled: true
+    min_replicas: 2
+    max_replicas: 20
+    target_latency_ms: 500
+    scale_up_threshold: 0.7
+    scale_down_threshold: 0.3
+
+  # Health checks
+  health:
+    liveness_interval: 30
+    readiness_interval: 10
+    startup_timeout: 120
+
+  # Infrastructure monitoring
+  infrastructure:
+    track_gpu_usage: true
+    track_memory: true
+    track_cpu: true
+    track_network: true
+
+# Compliance Configuration
+compliance:
+  enabled: true
+  index_prefix: "ai-compliance-metrics"
+
+  # GDPR compliance
+  gdpr:
+    enabled: true
+    data_retention_days: 90
+    anonymization_enabled: true
+    pii_detection: true
+    consent_tracking: true
+    right_to_forget: true
+
+  # Audit logging
+  audit:
+    enabled: true
+    log_all_requests: true
+    log_all_responses: true
+    include_metadata: true
+    retention_days: 365
+
+  # Data classification
+  classification:
+    enabled: true
+    levels:
+      - public
+      - internal
+      - confidential
+      - restricted
+
+  # Access control logging
+  access:
+    track_user_access: true
+    track_api_keys: true
+    track_ip_addresses: true
+    geo_tracking: true
+
+  # Model governance
+  governance:
+    model_registry: true
+    version_tracking: true
+    approval_workflow: true
+    risk_assessment: true
+
+# Alerting Configuration
+alerting:
+  enabled: true
+
+  # Alert channels
+  channels:
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channels:
+        critical: "#ai-alerts-critical"
+        warning: "#ai-alerts-warning"
+        info: "#ai-alerts-info"
+
+    email:
+      enabled: true
+      smtp_host: "smtp.example.com"
+      smtp_port: 587
+      from_address: "ai-monitoring@example.com"
+      recipients:
+        critical:
+          - "ops-team@example.com"
+          - "ai-team@example.com"
+        warning:
+          - "ai-team@example.com"
+
+    pagerduty:
+      enabled: false
+      api_key: "${PAGERDUTY_API_KEY}"
+      service_key: "${PAGERDUTY_SERVICE_KEY}"
+
+    webhook:
+      enabled: true
+      endpoints:
+        - url: "https://hooks.example.com/ai-alerts"
+          events: ["critical", "warning"]
+
+  # Alert rules
+  rules:
+    - name: "High Latency"
+      condition: "p95_latency > 5000"
+      severity: "warning"
+      cooldown_minutes: 15
+
+    - name: "Critical Error Rate"
+      condition: "error_rate > 5"
+      severity: "critical"
+      cooldown_minutes: 5
+
+    - name: "Budget Exceeded"
+      condition: "daily_cost > daily_budget"
+      severity: "critical"
+      cooldown_minutes: 60
+
+    - name: "Hallucination Detected"
+      condition: "hallucination_confidence > 0.9"
+      severity: "warning"
+      cooldown_minutes: 0
+
+    - name: "Compliance Violation"
+      condition: "compliance_violation == true"
+      severity: "critical"
+      cooldown_minutes: 0
+
+# Reporting Configuration
+reporting:
+  enabled: true
+  output_directory: "./reports"
+
+  # Scheduled reports
+  schedules:
+    - name: "Daily Technical Summary"
+      type: "technical"
+      cron: "0 8 * * *"
+      format: ["html", "pdf"]
+      recipients: ["ops@example.com"]
+
+    - name: "Weekly FinOps Report"
+      type: "finops"
+      cron: "0 9 * * 1"
+      format: ["html", "pdf", "csv"]
+      recipients: ["finance@example.com", "ai-team@example.com"]
+
+    - name: "Monthly Compliance Audit"
+      type: "compliance"
+      cron: "0 10 1 * *"
+      format: ["html", "pdf"]
+      recipients: ["compliance@example.com", "legal@example.com"]
+
+    - name: "Quarterly Executive Dashboard"
+      type: "executive"
+      cron: "0 10 1 1,4,7,10 *"
+      format: ["html", "pdf"]
+      recipients: ["cto@example.com", "cio@example.com"]
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/ai-monitoring.log"
+  max_size_mb: 100
+  backup_count: 10
+
+# Data Collection Configuration
+collection:
+  batch_size: 100
+  flush_interval_seconds: 10
+  retry_on_failure: true
+  max_retries: 3
+  dead_letter_queue: true

@@ -1,0 +1,308 @@
+{
+  "index_patterns": ["ai-cognitive-metrics-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "ai-metrics-policy",
+      "index.lifecycle.rollover_alias": "ai-cognitive-metrics",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "provider": {
+          "type": "keyword"
+        },
+        "model": {
+          "type": "keyword"
+        },
+        "environment": {
+          "type": "keyword"
+        },
+        "quality": {
+          "properties": {
+            "overall_score": {
+              "type": "float"
+            },
+            "relevance_score": {
+              "type": "float"
+            },
+            "coherence_score": {
+              "type": "float"
+            },
+            "completeness_score": {
+              "type": "float"
+            },
+            "accuracy_score": {
+              "type": "float"
+            },
+            "fluency_score": {
+              "type": "float"
+            },
+            "helpfulness_score": {
+              "type": "float"
+            },
+            "evaluation_method": {
+              "type": "keyword"
+            },
+            "human_feedback": {
+              "properties": {
+                "rating": {
+                  "type": "integer"
+                },
+                "thumbs_up": {
+                  "type": "boolean"
+                },
+                "feedback_text": {
+                  "type": "text"
+                },
+                "feedback_categories": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "hallucination": {
+          "properties": {
+            "detected": {
+              "type": "boolean"
+            },
+            "confidence": {
+              "type": "float"
+            },
+            "type": {
+              "type": "keyword"
+            },
+            "severity": {
+              "type": "keyword"
+            },
+            "factual_errors": {
+              "type": "nested",
+              "properties": {
+                "claim": {
+                  "type": "text"
+                },
+                "source_support": {
+                  "type": "boolean"
+                },
+                "confidence": {
+                  "type": "float"
+                }
+              }
+            },
+            "detection_method": {
+              "type": "keyword"
+            }
+          }
+        },
+        "bias": {
+          "properties": {
+            "detected": {
+              "type": "boolean"
+            },
+            "overall_score": {
+              "type": "float"
+            },
+            "categories": {
+              "type": "nested",
+              "properties": {
+                "category": {
+                  "type": "keyword"
+                },
+                "score": {
+                  "type": "float"
+                },
+                "direction": {
+                  "type": "keyword"
+                },
+                "examples": {
+                  "type": "text"
+                }
+              }
+            },
+            "fairness_metrics": {
+              "properties": {
+                "demographic_parity": {
+                  "type": "float"
+                },
+                "equalized_odds": {
+                  "type": "float"
+                },
+                "calibration": {
+                  "type": "float"
+                }
+              }
+            }
+          }
+        },
+        "toxicity": {
+          "properties": {
+            "detected": {
+              "type": "boolean"
+            },
+            "overall_score": {
+              "type": "float"
+            },
+            "categories": {
+              "type": "nested",
+              "properties": {
+                "category": {
+                  "type": "keyword"
+                },
+                "score": {
+                  "type": "float"
+                },
+                "flagged": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "action_taken": {
+              "type": "keyword"
+            }
+          }
+        },
+        "sentiment": {
+          "properties": {
+            "input": {
+              "properties": {
+                "label": {
+                  "type": "keyword"
+                },
+                "score": {
+                  "type": "float"
+                },
+                "emotions": {
+                  "type": "object"
+                }
+              }
+            },
+            "output": {
+              "properties": {
+                "label": {
+                  "type": "keyword"
+                },
+                "score": {
+                  "type": "float"
+                },
+                "emotions": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "prompt_analysis": {
+          "properties": {
+            "complexity_score": {
+              "type": "float"
+            },
+            "clarity_score": {
+              "type": "float"
+            },
+            "intent_category": {
+              "type": "keyword"
+            },
+            "topic_classification": {
+              "type": "keyword"
+            },
+            "language": {
+              "type": "keyword"
+            },
+            "contains_pii": {
+              "type": "boolean"
+            },
+            "injection_attempt": {
+              "type": "boolean"
+            },
+            "jailbreak_attempt": {
+              "type": "boolean"
+            }
+          }
+        },
+        "response_analysis": {
+          "properties": {
+            "word_count": {
+              "type": "integer"
+            },
+            "sentence_count": {
+              "type": "integer"
+            },
+            "reading_level": {
+              "type": "keyword"
+            },
+            "format_type": {
+              "type": "keyword"
+            },
+            "contains_code": {
+              "type": "boolean"
+            },
+            "contains_urls": {
+              "type": "boolean"
+            },
+            "refusal": {
+              "type": "boolean"
+            },
+            "refusal_reason": {
+              "type": "keyword"
+            }
+          }
+        },
+        "conversation": {
+          "properties": {
+            "turn_number": {
+              "type": "integer"
+            },
+            "context_length": {
+              "type": "integer"
+            },
+            "topic_drift_score": {
+              "type": "float"
+            },
+            "engagement_score": {
+              "type": "float"
+            }
+          }
+        },
+        "context": {
+          "properties": {
+            "team": {
+              "type": "keyword"
+            },
+            "project": {
+              "type": "keyword"
+            },
+            "application": {
+              "type": "keyword"
+            },
+            "use_case": {
+              "type": "keyword"
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Template for AI cognitive metrics - quality, hallucination, bias, toxicity",
+    "version": "1.0.0",
+    "created_by": "ai-monitoring-platform"
+  }
+}

@@ -1,0 +1,393 @@
+{
+  "index_patterns": ["ai-compliance-metrics-*"],
+  "priority": 100,
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "ai-compliance-policy",
+      "index.lifecycle.rollover_alias": "ai-compliance-metrics",
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": {
+          "type": "date",
+          "format": "strict_date_optional_time||epoch_millis"
+        },
+        "event_type": {
+          "type": "keyword",
+          "doc_values": true
+        },
+        "request_id": {
+          "type": "keyword"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "environment": {
+          "type": "keyword"
+        },
+        "audit": {
+          "properties": {
+            "action": {
+              "type": "keyword"
+            },
+            "resource_type": {
+              "type": "keyword"
+            },
+            "resource_id": {
+              "type": "keyword"
+            },
+            "outcome": {
+              "type": "keyword"
+            },
+            "reason": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "changes": {
+              "type": "nested",
+              "properties": {
+                "field": {
+                  "type": "keyword"
+                },
+                "old_value_hash": {
+                  "type": "keyword"
+                },
+                "new_value_hash": {
+                  "type": "keyword"
+                }
+              }
+            }
+          }
+        },
+        "actor": {
+          "properties": {
+            "type": {
+              "type": "keyword"
+            },
+            "id": {
+              "type": "keyword"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "email_hash": {
+              "type": "keyword"
+            },
+            "role": {
+              "type": "keyword"
+            },
+            "department": {
+              "type": "keyword"
+            },
+            "api_key_id": {
+              "type": "keyword"
+            },
+            "service_account": {
+              "type": "boolean"
+            }
+          }
+        },
+        "access": {
+          "properties": {
+            "ip_address_hash": {
+              "type": "keyword"
+            },
+            "geo": {
+              "properties": {
+                "country": {
+                  "type": "keyword"
+                },
+                "region": {
+                  "type": "keyword"
+                },
+                "city": {
+                  "type": "keyword"
+                },
+                "location": {
+                  "type": "geo_point"
+                }
+              }
+            },
+            "user_agent": {
+              "type": "keyword"
+            },
+            "device_type": {
+              "type": "keyword"
+            },
+            "authentication_method": {
+              "type": "keyword"
+            },
+            "mfa_used": {
+              "type": "boolean"
+            },
+            "session_id": {
+              "type": "keyword"
+            },
+            "session_duration_seconds": {
+              "type": "integer"
+            }
+          }
+        },
+        "gdpr": {
+          "properties": {
+            "data_subject_id_hash": {
+              "type": "keyword"
+            },
+            "processing_basis": {
+              "type": "keyword"
+            },
+            "consent": {
+              "properties": {
+                "given": {
+                  "type": "boolean"
+                },
+                "timestamp": {
+                  "type": "date"
+                },
+                "version": {
+                  "type": "keyword"
+                },
+                "purposes": {
+                  "type": "keyword"
+                },
+                "withdrawable": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "data_categories": {
+              "type": "keyword"
+            },
+            "special_categories": {
+              "type": "boolean"
+            },
+            "retention_period_days": {
+              "type": "integer"
+            },
+            "deletion_scheduled": {
+              "type": "date"
+            },
+            "cross_border_transfer": {
+              "type": "boolean"
+            },
+            "transfer_mechanism": {
+              "type": "keyword"
+            },
+            "dpia_required": {
+              "type": "boolean"
+            },
+            "dpia_reference": {
+              "type": "keyword"
+            }
+          }
+        },
+        "pii": {
+          "properties": {
+            "detected": {
+              "type": "boolean"
+            },
+            "types": {
+              "type": "keyword"
+            },
+            "count": {
+              "type": "integer"
+            },
+            "redacted": {
+              "type": "boolean"
+            },
+            "redaction_method": {
+              "type": "keyword"
+            },
+            "detection_confidence": {
+              "type": "float"
+            }
+          }
+        },
+        "data_classification": {
+          "properties": {
+            "level": {
+              "type": "keyword"
+            },
+            "categories": {
+              "type": "keyword"
+            },
+            "handling_instructions": {
+              "type": "keyword"
+            },
+            "encryption_required": {
+              "type": "boolean"
+            },
+            "encrypted": {
+              "type": "boolean"
+            },
+            "encryption_algorithm": {
+              "type": "keyword"
+            }
+          }
+        },
+        "model_governance": {
+          "properties": {
+            "model_id": {
+              "type": "keyword"
+            },
+            "model_version": {
+              "type": "keyword"
+            },
+            "model_name": {
+              "type": "keyword"
+            },
+            "provider": {
+              "type": "keyword"
+            },
+            "approval_status": {
+              "type": "keyword"
+            },
+            "approved_by": {
+              "type": "keyword"
+            },
+            "approved_at": {
+              "type": "date"
+            },
+            "risk_level": {
+              "type": "keyword"
+            },
+            "risk_assessment_id": {
+              "type": "keyword"
+            },
+            "use_case_approved": {
+              "type": "keyword"
+            },
+            "restrictions": {
+              "type": "keyword"
+            },
+            "documentation_url": {
+              "type": "keyword"
+            }
+          }
+        },
+        "ai_act": {
+          "properties": {
+            "risk_category": {
+              "type": "keyword"
+            },
+            "transparency_obligations_met": {
+              "type": "boolean"
+            },
+            "human_oversight_required": {
+              "type": "boolean"
+            },
+            "human_oversight_present": {
+              "type": "boolean"
+            },
+            "technical_documentation": {
+              "type": "boolean"
+            },
+            "conformity_assessment": {
+              "type": "keyword"
+            }
+          }
+        },
+        "content_policy": {
+          "properties": {
+            "policy_version": {
+              "type": "keyword"
+            },
+            "violation_detected": {
+              "type": "boolean"
+            },
+            "violation_type": {
+              "type": "keyword"
+            },
+            "action_taken": {
+              "type": "keyword"
+            },
+            "review_required": {
+              "type": "boolean"
+            },
+            "reviewed_by": {
+              "type": "keyword"
+            },
+            "reviewed_at": {
+              "type": "date"
+            }
+          }
+        },
+        "data_lineage": {
+          "properties": {
+            "source_systems": {
+              "type": "keyword"
+            },
+            "processing_steps": {
+              "type": "keyword"
+            },
+            "transformations": {
+              "type": "keyword"
+            },
+            "output_destinations": {
+              "type": "keyword"
+            }
+          }
+        },
+        "retention": {
+          "properties": {
+            "policy_name": {
+              "type": "keyword"
+            },
+            "retention_days": {
+              "type": "integer"
+            },
+            "deletion_date": {
+              "type": "date"
+            },
+            "legal_hold": {
+              "type": "boolean"
+            },
+            "legal_hold_reason": {
+              "type": "keyword"
+            }
+          }
+        },
+        "request_response": {
+          "properties": {
+            "prompt_hash": {
+              "type": "keyword"
+            },
+            "prompt_length": {
+              "type": "integer"
+            },
+            "response_hash": {
+              "type": "keyword"
+            },
+            "response_length": {
+              "type": "integer"
+            },
+            "stored": {
+              "type": "boolean"
+            },
+            "storage_location": {
+              "type": "keyword"
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Template for AI compliance metrics - GDPR, audit, data classification, governance",
+    "version": "1.0.0",
+    "created_by": "ai-monitoring-platform"
+  }
+}
