@@ -1,0 +1,101 @@
+# ELK Upgrade Audit Tool - Docker Compose
+# ========================================
+#
+# Usage:
+#   docker-compose run --rm elk-audit interactive
+#   docker-compose run --rm elk-audit audit --target-version 8.11.0
+#   docker-compose run --rm elk-audit validate
+#
+# With custom ES cluster:
+#   ES_HOSTS=https://my-cluster:9200 docker-compose run --rm elk-audit audit
+
+version: '3.8'
+
+services:
+  elk-audit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: elk-upgrade-audit:latest
+    container_name: elk-upgrade-audit
+
+    # Environment variables for ES connection
+    environment:
+      # Elasticsearch connection
+      - ES_HOSTS=${ES_HOSTS:-https://localhost:9200}
+      - ES_USERNAME=${ES_USERNAME:-elastic}
+      - ES_PASSWORD=${ES_PASSWORD:-}
+      - ES_VERIFY_CERTS=${ES_VERIFY_CERTS:-false}
+      - ES_CA_CERTS=${ES_CA_CERTS:-}
+
+      # Upgrade settings
+      - TARGET_VERSION=${TARGET_VERSION:-8.11.0}
+      - UPGRADE_STRATEGY=${UPGRADE_STRATEGY:-rolling}
+
+      # Report settings
+      - REPORT_FORMAT=${REPORT_FORMAT:-html}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+    # Mount volumes
+    volumes:
+      # Custom configuration (optional)
+      - ./config:/app/config:ro
+      # Output reports
+      - ./reports:/app/reports
+      # Logs
+      - ./logs:/app/logs
+      # CA certificates (optional)
+      - ${ES_CA_CERTS_PATH:-./certs}:/app/certs:ro
+
+    # Network configuration
+    networks:
+      - elastic
+
+    # Interactive mode
+    stdin_open: true
+    tty: true
+
+    # Restart policy
+    restart: "no"
+
+  # Optional: Local Elasticsearch for testing
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch-test
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - elastic
+    profiles:
+      - with-es
+
+  # Optional: Kibana for visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana-test
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - elastic
+    profiles:
+      - with-es
+
+networks:
+  elastic:
+    driver: bridge
+    name: elk-audit-network
+
+# Named volumes for persistence
+volumes:
+  reports:
+    driver: local
+  logs:
+    driver: local
