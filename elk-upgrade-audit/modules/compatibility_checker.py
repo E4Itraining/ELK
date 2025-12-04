@@ -17,6 +17,7 @@ class UpgradeType(Enum):
     MAJOR = "major"           # 7.x -> 8.x
     ROLLING = "rolling"       # Can be done with rolling restart
     FULL_RESTART = "full"     # Requires full cluster restart
+    DOUBLE_MAJOR = "double_major"  # Double major upgrade (e.g., 7.x -> 9.x)
     REINDEX = "reindex"       # Requires reindexing
     NOT_SUPPORTED = "not_supported"  # Direct upgrade not supported
 
@@ -81,8 +82,11 @@ class CompatibilityChecker:
         "6.8": ["7.17"],
         "7.0": ["7.17", "8.0"],
         "7.1": ["7.17", "8.0"],
-        "7.17": ["8.0", "8.1", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9", "8.10", "8.11", "8.12", "8.13", "8.14", "8.15"],
-        "8.0": ["8.1", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9", "8.10", "8.11", "8.12", "8.13", "8.14", "8.15"],
+        "7.17": ["8.0", "8.1", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9", "8.10", "8.11", "8.12", "8.13", "8.14", "8.15", "8.16", "8.17", "8.18"],
+        "8.0": ["8.1", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9", "8.10", "8.11", "8.12", "8.13", "8.14", "8.15", "8.16", "8.17", "8.18"],
+        # ES 8.x to 9.x upgrade paths - requires 8.18 minimum for direct upgrade to 9.x
+        "8.18": ["9.0", "9.1"],
+        "9.0": ["9.1"],
     }
 
     # Breaking changes database
@@ -156,6 +160,80 @@ class CompatibilityChecker:
                 "action": "Use copy_to for similar functionality",
                 "severity": "medium"
             }
+        ],
+        "8_to_9": [
+            {
+                "category": "Java",
+                "change": "Minimum Java version is 21",
+                "action": "Upgrade Java to version 21 or later",
+                "severity": "critical"
+            },
+            {
+                "category": "Security",
+                "change": "TLS is required for all inter-node communication",
+                "action": "Ensure TLS certificates are properly configured for all nodes",
+                "severity": "critical"
+            },
+            {
+                "category": "API",
+                "change": "Several deprecated REST APIs have been removed",
+                "action": "Review and update API calls to use supported endpoints",
+                "severity": "high"
+            },
+            {
+                "category": "Mapping",
+                "change": "Legacy mapping parameters removed",
+                "action": "Update index templates to remove deprecated mapping parameters",
+                "severity": "high"
+            },
+            {
+                "category": "Settings",
+                "change": "Several deprecated cluster and node settings removed",
+                "action": "Review and remove deprecated settings from elasticsearch.yml",
+                "severity": "high"
+            },
+            {
+                "category": "Indices",
+                "change": "Indices created in 7.x require reindexing",
+                "action": "Reindex any indices created before 8.0 before upgrading to 9.x",
+                "severity": "critical"
+            },
+            {
+                "category": "Plugins",
+                "change": "Plugin architecture changes",
+                "action": "Update all third-party plugins to 9.x compatible versions",
+                "severity": "high"
+            },
+            {
+                "category": "ILM",
+                "change": "Frozen tier removed",
+                "action": "Migrate frozen tier data to cold or warm tiers",
+                "severity": "medium"
+            },
+            {
+                "category": "Query DSL",
+                "change": "Some query types deprecated or removed",
+                "action": "Review and update search queries for compatibility",
+                "severity": "medium"
+            },
+            {
+                "category": "Scripting",
+                "change": "Painless language updates and deprecated methods removed",
+                "action": "Review and test all Painless scripts",
+                "severity": "medium"
+            },
+            {
+                "category": "Ingest",
+                "change": "Some ingest processors behavior changes",
+                "action": "Review ingest pipelines for deprecated processor options",
+                "severity": "medium"
+            },
+            {
+                "category": "ML",
+                "change": "Machine Learning API changes",
+                "action": "Update ML job configurations and API calls",
+                "severity": "medium"
+            }
         ]
     }
 
@@ -164,6 +242,9 @@ class CompatibilityChecker:
         "8.0": Version.parse("7.17.0"),
         "8.1": Version.parse("7.17.0"),
         "7.0": Version.parse("6.8.0"),
+        # ES 9.x requires 8.18.0 minimum for direct upgrade
+        "9.0": Version.parse("8.18.0"),
+        "9.1": Version.parse("8.18.0"),
     }
 
     def __init__(self, es_client, config):
@@ -247,7 +328,13 @@ class CompatibilityChecker:
         )
 
     def _determine_upgrade_type(self, current: Version, target: Version) -> UpgradeType:
-        """Determine the type of upgrade required."""
+        """Determine the type of upgrade required.
+
+        Supports:
+        - Minor upgrades (same major version)
+        - Single major upgrades (7.x -> 8.x, 8.x -> 9.x)
+        - Double major upgrades (7.x -> 9.x) with intermediate steps
+        """
         # Same major version - minor upgrade
         if current.major == target.major:
             if target.minor - current.minor <= 1:
@@ -255,7 +342,7 @@ class CompatibilityChecker:
             else:
                 return UpgradeType.ROLLING  # Minor versions support rolling upgrades
 
-        # Major version upgrade
+        # Major version upgrade (e.g., 7.x -> 8.x or 8.x -> 9.x)
         if target.major - current.major == 1:
             # Check if direct upgrade is supported
             min_version = self.MINIMUM_VERSIONS.get(f"{target.major}.0")
@@ -264,14 +351,25 @@ class CompatibilityChecker:
             else:
                 return UpgradeType.MAJOR
 
-        # Multiple major versions - not directly supported
-        if target.major - current.major > 1:
+        # Double major version upgrade (e.g., 7.x -> 9.x)
+        # Supported with intermediate steps (7.17 -> 8.18 -> 9.x)
+        if target.major - current.major == 2:
+            return UpgradeType.DOUBLE_MAJOR
+
+        # More than 2 major versions - requires reindexing
+        if target.major - current.major > 2:
             return UpgradeType.REINDEX
 
         return UpgradeType.NOT_SUPPORTED
 
     def _calculate_upgrade_path(self, current: Version, target: Version) -> List[str]:
-        """Calculate the upgrade path from current to target version."""
+        """Calculate the upgrade path from current to target version.
+
+        Handles single and double major upgrades:
+        - 7.x -> 8.x: Direct upgrade (requires 7.17.x minimum)
+        - 8.x -> 9.x: Direct upgrade (requires 8.18.x minimum)
+        - 7.x -> 9.x: Double upgrade through 7.17.x -> 8.18.x -> 9.x
+        """
         path = [str(current)]
 
         # Direct upgrade within same major
@@ -279,21 +377,39 @@ class CompatibilityChecker:
             path.append(str(target))
             return path
 
-        # Major version upgrade (e.g., 7.x -> 8.x)
+        # Major version upgrade (e.g., 7.x -> 8.x or 8.x -> 9.x)
         if target.major - current.major == 1:
-            # First upgrade to last minor of current major if needed
-            if current.major == 7 and current.minor < 17:
-                path.append(f"7.17.x")
+            # Upgrade to last minor of current major if needed
+            last_minor = self._get_last_minor_version(current.major)
+            if current.minor < last_minor:
+                path.append(f"{current.major}.{last_minor}.x")
 
             path.append(str(target))
             return path
 
-        # Multiple major versions - need intermediate steps
-        if target.major - current.major > 1:
-            intermediate = current.major + 1
+        # Double major version upgrade (e.g., 7.x -> 9.x)
+        if target.major - current.major == 2:
+            # Step 1: Upgrade to last minor of current major if needed
+            last_minor_current = self._get_last_minor_version(current.major)
+            if current.minor < last_minor_current:
+                path.append(f"{current.major}.{last_minor_current}.x")
+
+            # Step 2: Upgrade to last minor of intermediate major version
+            intermediate_major = current.major + 1
+            last_minor_intermediate = self._get_last_minor_version(intermediate_major)
+            path.append(f"{intermediate_major}.{last_minor_intermediate}.x")
+
+            # Step 3: Final upgrade to target
+            path.append(str(target))
+            return path
+
+        # More than 2 major versions - need multiple intermediate steps
+        if target.major - current.major > 2:
+            intermediate = current.major
             while intermediate < target.major:
                 last_minor = self._get_last_minor_version(intermediate)
-                path.append(f"{intermediate}.{last_minor}.x")
+                if intermediate > current.major or current.minor < last_minor:
+                    path.append(f"{intermediate}.{last_minor}.x")
                 intermediate += 1
             path.append(str(target))
 
@@ -304,12 +420,17 @@ class CompatibilityChecker:
         last_minor_map = {
             6: 8,
             7: 17,
-            8: 15  # Update as new versions are released
+            8: 18,  # 8.18 is the last minor before 9.x
+            9: 1    # Update as new versions are released
         }
         return last_minor_map.get(major, 0)
 
     def _get_breaking_changes(self, current: Version, target: Version) -> List[Dict[str, str]]:
-        """Get breaking changes between versions."""
+        """Get breaking changes between versions.
+
+        For double upgrades (e.g., 7 -> 9), this returns all breaking changes
+        for both transitions (7 -> 8 and 8 -> 9).
+        """
         changes = []
 
         if current.major == 6 and target.major >= 7:
@@ -317,6 +438,9 @@ class CompatibilityChecker:
 
         if current.major <= 7 and target.major >= 8:
             changes.extend(self.BREAKING_CHANGES.get("7_to_8", []))
+
+        if current.major <= 8 and target.major >= 9:
+            changes.extend(self.BREAKING_CHANGES.get("8_to_9", []))
 
         return changes
 
@@ -330,10 +454,30 @@ class CompatibilityChecker:
         if upgrade_type == UpgradeType.REINDEX:
             warnings.append("Upgrade requires reindexing data - this can be time-consuming")
 
+        # Double upgrade warning (e.g., 7.x -> 9.x)
+        if upgrade_type == UpgradeType.DOUBLE_MAJOR:
+            warnings.append(f"Double major version upgrade detected: {current.major}.x -> {target.major}.x")
+            warnings.append("This requires two sequential upgrades with cluster restarts")
+            warnings.append("Plan for extended maintenance window")
+
         if target.major == 8 and current.major == 7:
             warnings.append("Elasticsearch 8.x enables security by default")
             warnings.append("Review and test all custom scripts before upgrade")
             warnings.append("Legacy index templates should be migrated to composable templates")
+
+        if target.major == 9 and current.major == 8:
+            warnings.append("Elasticsearch 9.x requires Java 21 or later")
+            warnings.append("TLS is mandatory for all inter-node communication")
+            warnings.append("Indices created in 7.x must be reindexed before upgrading to 9.x")
+            warnings.append("Review all deprecated settings and APIs")
+
+        # Double upgrade 7 -> 9: combine warnings
+        if target.major == 9 and current.major == 7:
+            warnings.append("Elasticsearch 8.x enables security by default")
+            warnings.append("Legacy index templates must be migrated to composable templates")
+            warnings.append("Elasticsearch 9.x requires Java 21 or later")
+            warnings.append("TLS is mandatory for all inter-node communication in 9.x")
+            warnings.append("All indices from 7.x need reindexing before reaching 9.x")
 
         if current.minor < self._get_last_minor_version(current.major):
             warnings.append(f"Consider upgrading to {current.major}.{self._get_last_minor_version(current.major)}.x first")
@@ -341,17 +485,31 @@ class CompatibilityChecker:
         return warnings
 
     def _get_blockers(self, current: Version, target: Version) -> List[str]:
-        """Get upgrade blockers."""
+        """Get upgrade blockers.
+
+        Note: Double upgrades (e.g., 7.x -> 9.x) are supported with intermediate steps.
+        Only upgrades spanning more than 2 major versions are blocked.
+        """
         blockers = []
 
-        # Check for unsupported direct upgrades
+        # Check for unsupported direct upgrades (more than 2 major versions)
         if target.major - current.major > 2:
             blockers.append(f"Direct upgrade from {current.major}.x to {target.major}.x is not supported")
             blockers.append("Must upgrade through intermediate major versions")
 
-        # Check minimum version requirements
+        # Check minimum version requirements for 7 -> 8
         if target.major == 8 and current.major == 7 and current < Version.parse("7.17.0"):
             blockers.append(f"Must upgrade to 7.17.x before upgrading to 8.x (current: {current})")
+
+        # Check minimum version requirements for 8 -> 9
+        if target.major == 9 and current.major == 8 and current < Version.parse("8.18.0"):
+            blockers.append(f"Must upgrade to 8.18.x before upgrading to 9.x (current: {current})")
+
+        # Check minimum version requirements for double upgrade 7 -> 9
+        if target.major == 9 and current.major == 7:
+            if current < Version.parse("7.17.0"):
+                blockers.append(f"Must upgrade to 7.17.x first before proceeding (current: {current})")
+            # This is a warning, not a blocker - the path will include intermediate steps
 
         if target.major == 7 and current.major == 6 and current < Version.parse("6.8.0"):
             blockers.append(f"Must upgrade to 6.8.x before upgrading to 7.x (current: {current})")
@@ -380,11 +538,42 @@ class CompatibilityChecker:
                 "Test all integrations with the new version"
             ])
 
+        # Double upgrade recommendations (e.g., 7 -> 9)
+        if upgrade_type == UpgradeType.DOUBLE_MAJOR:
+            recommendations.extend([
+                "Plan for two sequential upgrades with separate snapshots",
+                "Create snapshot before each major upgrade step",
+                "Validate cluster health after each upgrade step",
+                "Allow sufficient time for each upgrade phase"
+            ])
+
         if target.major == 8:
             recommendations.extend([
                 "Plan for security configuration (TLS, authentication)",
                 "Update Kibana and other Elastic stack components",
                 "Review and migrate legacy index templates"
+            ])
+
+        if target.major == 9:
+            recommendations.extend([
+                "Upgrade Java to version 21 or later before upgrading",
+                "Ensure TLS certificates are configured for all nodes",
+                "Update Kibana to 9.x (matching minor version)",
+                "Update all Elastic Stack components (Logstash, Beats, etc.)",
+                "Review and update all third-party plugins",
+                "Check for indices created before 8.0 and reindex if needed",
+                "Test all ingest pipelines and transforms",
+                "Review Machine Learning job configurations"
+            ])
+
+        # Specific recommendations for double upgrade 7 -> 9
+        if target.major == 9 and current.major == 7:
+            recommendations.extend([
+                "Phase 1: Complete upgrade to 8.18.x and validate all features",
+                "Phase 2: After validation, proceed with upgrade to 9.x",
+                "Reindex all data from 7.x indices before upgrading to 9.x",
+                "Update all client libraries and application code",
+                "Consider extended maintenance window for double upgrade"
             ])
 
         return recommendations
