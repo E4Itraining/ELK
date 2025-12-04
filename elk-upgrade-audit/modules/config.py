@@ -34,7 +34,7 @@ class ClusterConfig:
 @dataclass
 class UpgradeConfig:
     """Upgrade settings configuration."""
-    target_version: str = "8.11.0"
+    target_version: str = "9.1.6"
     current_version: str = ""
     strategy: str = "rolling"
 
