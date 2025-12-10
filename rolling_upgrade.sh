@@ -196,7 +196,7 @@ upgrade_host() {
   local host="$1"
 
   log "======================================"
-  log "🔥 UPGRADE DU HOST : $host (hot + warm)"
+  log " UPGRADE DU HOST : $host (hot + warm)"
   log "======================================"
 
   # Upgrade du node HOT
