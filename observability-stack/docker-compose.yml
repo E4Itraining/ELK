@@ -565,10 +565,23 @@ services:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-8.11.0}
     container_name: logstash
     depends_on:
+      setup:
+        condition: service_completed_successfully
       es01:
         condition: service_healthy
       kafka01:
         condition: service_healthy
+    # Wait for certificates to be available before starting Logstash
+    command: >
+      bash -c '
+        echo "Waiting for SSL certificates...";
+        while [ ! -f /usr/share/logstash/config/certs/ca/ca.crt ]; do
+          echo "Certificates not ready, waiting...";
+          sleep 2;
+        done;
+        echo "Certificates found, starting Logstash...";
+        exec /usr/local/bin/docker-entrypoint
+      '
     environment:
       - LS_JAVA_OPTS=-Xms${LOGSTASH_HEAP_SIZE:-512m} -Xmx${LOGSTASH_HEAP_SIZE:-512m}
       - ES_USER=elastic
@@ -698,6 +711,8 @@ services:
     image: grafana/grafana:${GRAFANA_VERSION:-10.2.0}
     container_name: grafana
     depends_on:
+      setup:
+        condition: service_completed_successfully
       prometheus:
         condition: service_healthy
     environment:
@@ -819,6 +834,8 @@ services:
       dockerfile: Dockerfile
     container_name: log-injector
     depends_on:
+      setup:
+        condition: service_completed_successfully
       es01:
         condition: service_healthy
     environment:
