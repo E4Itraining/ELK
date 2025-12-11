@@ -4,13 +4,13 @@
 # Multi-stage build for a lightweight Python log injector
 # ============================================================================
 
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies to a custom location
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --target=/install -r requirements.txt
 
 # ============================================================================
 # FINAL IMAGE
@@ -19,18 +19,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
+# Create non-root user first
+RUN useradd -m -u 1000 appuser
 
-# Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
+# Copy installed packages from builder to a location accessible by all users
+COPY --from=builder /install /usr/local/lib/python3.11/site-packages/
 
 # Copy application
-COPY log_injector.py .
-
-# Create non-root user
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+COPY --chown=appuser:appuser log_injector.py .
 
 USER appuser
 
