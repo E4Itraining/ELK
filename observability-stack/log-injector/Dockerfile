@@ -1,20 +1,9 @@
 # ============================================================================
 # LOG INJECTOR DOCKERFILE
 # ============================================================================
-# Multi-stage build for a lightweight Python log injector
+# Lightweight Python log injector for Elasticsearch
 # ============================================================================
 
-FROM python:3.11-slim AS builder
-
-WORKDIR /app
-
-# Install dependencies to a custom location
-COPY requirements.txt .
-RUN pip install --no-cache-dir --target=/install -r requirements.txt
-
-# ============================================================================
-# FINAL IMAGE
-# ============================================================================
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -22,8 +11,9 @@ WORKDIR /app
 # Create non-root user first
 RUN useradd -m -u 1000 appuser
 
-# Copy installed packages from builder to a location accessible by all users
-COPY --from=builder /install /usr/local/lib/python3.11/site-packages/
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY --chown=appuser:appuser log_injector.py .
