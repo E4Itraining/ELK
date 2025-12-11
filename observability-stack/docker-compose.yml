@@ -337,7 +337,7 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy"]
+      test: ["CMD", "sh", "-c", "wget -q -O /dev/null http://localhost:9090/-/healthy"]
       interval: 10s
       timeout: 5s
       start_period: 30s
