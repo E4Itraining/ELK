@@ -611,7 +611,7 @@ services:
   # LOGSTASH EXPORTER (Prometheus metrics from Logstash)
   # ==========================================================================
   logstash-exporter:
-    image: kuskoman/logstash-exporter:${LOGSTASH_EXPORTER_VERSION:-v1.6.5}
+    image: kuskoman/logstash-exporter:${LOGSTASH_EXPORTER_VERSION:-v1.7.1}
     container_name: logstash-exporter
     depends_on:
       logstash:
