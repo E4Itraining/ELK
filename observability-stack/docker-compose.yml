@@ -402,11 +402,11 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9092' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=1"
@@ -460,11 +460,11 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9092' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=2"
@@ -518,11 +518,11 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9092' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=3"
