@@ -573,9 +573,9 @@ services:
       - LS_JAVA_OPTS=-Xms${LOGSTASH_HEAP_SIZE:-512m} -Xmx${LOGSTASH_HEAP_SIZE:-512m}
       - ES_USER=elastic
       - ES_PASSWORD=${ELASTIC_PASSWORD}
-      - PIPELINE_WORKERS=2
-      - PIPELINE_BATCH_SIZE=125
-      - LOG_LEVEL=info
+      # Note: PIPELINE_WORKERS, PIPELINE_BATCH_SIZE, and LOG_LEVEL are configured
+      # in logstash.yml. Setting them as env vars would trigger env2yaml to write
+      # to the config file, which fails when mounted read-only.
     mem_limit: ${LOGSTASH_MEM_LIMIT:-1g}
     ulimits:
       memlock:
