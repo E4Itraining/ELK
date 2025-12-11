@@ -14,7 +14,7 @@
 
 services:
   # ==========================================================================
-  # SETUP - Initialisation des certificats et configuration
+  # SETUP - Certificate initialization (one-shot container)
   # ==========================================================================
   setup:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
@@ -68,21 +68,40 @@ services:
           bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
           unzip config/certs/certs.zip -d config/certs;
         fi;
-        echo "Setting file permissions"
+        echo "Setting file permissions";
         chown -R root:root config/certs;
         find . -type d -exec chmod 750 \{\} \;;
         find . -type f -exec chmod 640 \{\} \;;
-        echo "Waiting for Elasticsearch availability";
-        until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
-        echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
-        echo "All done!";
+        echo "Certificates ready!";
       '
     healthcheck:
       test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
       interval: 1s
       timeout: 5s
       retries: 120
+    networks:
+      - elastic
+
+  # ==========================================================================
+  # POST-SETUP - Configure passwords after ES is available (one-shot)
+  # ==========================================================================
+  post-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
+    container_name: post-setup
+    depends_on:
+      es01:
+        condition: service_healthy
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        echo "Waiting for Elasticsearch availability";
+        until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 5; done;
+        echo "Post-setup complete!";
+      '
     networks:
       - elastic
 
@@ -94,7 +113,7 @@ services:
     container_name: es01
     depends_on:
       setup:
-        condition: service_healthy
+        condition: service_completed_successfully
     environment:
       - node.name=es01
       - cluster.name=${CLUSTER_NAME:-observability-cluster}
@@ -260,6 +279,8 @@ services:
         condition: service_healthy
       es03:
         condition: service_healthy
+      post-setup:
+        condition: service_completed_successfully
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=https://es01:9200
