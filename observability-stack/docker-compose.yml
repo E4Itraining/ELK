@@ -1,0 +1,505 @@
+version: '3.8'
+
+# ============================================================================
+# STACK D'OBSERVABILITE ELK COMPLETE
+# ============================================================================
+# Composants:
+# - Elasticsearch 8.x (3 noeuds: es01, es02, es03)
+# - Kibana 8.x
+# - Prometheus
+# - Alertmanager
+# - Grafana (pre-provisionne)
+# - Elasticsearch Exporter
+# - Blackbox Exporter
+# - OpenTelemetry Collector
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # SETUP - Initialisation des certificats et configuration
+  # ==========================================================================
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
+    container_name: setup
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        if [ x${ELASTIC_PASSWORD} == x ]; then
+          echo "Set the ELASTIC_PASSWORD environment variable in the .env file";
+          exit 1;
+        elif [ x${KIBANA_PASSWORD} == x ]; then
+          echo "Set the KIBANA_PASSWORD environment variable in the .env file";
+          exit 1;
+        fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          echo "Creating certs";
+          echo -ne \
+          "instances:\n"\
+          "  - name: es01\n"\
+          "    dns:\n"\
+          "      - es01\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: es02\n"\
+          "    dns:\n"\
+          "      - es02\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: es03\n"\
+          "    dns:\n"\
+          "      - es03\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: kibana\n"\
+          "    dns:\n"\
+          "      - kibana\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        echo "Setting file permissions"
+        chown -R root:root config/certs;
+        find . -type d -exec chmod 750 \{\} \;;
+        find . -type f -exec chmod 640 \{\} \;;
+        echo "Waiting for Elasticsearch availability";
+        until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "All done!";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+    networks:
+      - elastic
+
+  # ==========================================================================
+  # ELASTICSEARCH CLUSTER (3 NOEUDS)
+  # ==========================================================================
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
+    container_name: es01
+    depends_on:
+      setup:
+        condition: service_healthy
+    environment:
+      - node.name=es01
+      - cluster.name=${CLUSTER_NAME:-observability-cluster}
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es02,es03
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-1g} -Xmx${ES_HEAP_SIZE:-1g}"
+    mem_limit: ${ES_MEM_LIMIT:-2g}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata01:/usr/share/elasticsearch/data
+    ports:
+      - ${ES_PORT:-9200}:9200
+      - 9300:9300
+    networks:
+      - elastic
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    labels:
+      - "observability.component=elasticsearch"
+      - "observability.role=master,data,ingest"
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
+    container_name: es02
+    depends_on:
+      - es01
+    environment:
+      - node.name=es02
+      - cluster.name=${CLUSTER_NAME:-observability-cluster}
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es03
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es02/es02.key
+      - xpack.security.http.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es02/es02.key
+      - xpack.security.transport.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-1g} -Xmx${ES_HEAP_SIZE:-1g}"
+    mem_limit: ${ES_MEM_LIMIT:-2g}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata02:/usr/share/elasticsearch/data
+    ports:
+      - 9201:9200
+      - 9301:9300
+    networks:
+      - elastic
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    labels:
+      - "observability.component=elasticsearch"
+      - "observability.role=master,data,ingest"
+
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.11.0}
+    container_name: es03
+    depends_on:
+      - es02
+    environment:
+      - node.name=es03
+      - cluster.name=${CLUSTER_NAME:-observability-cluster}
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es02
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es03/es03.key
+      - xpack.security.http.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es03/es03.key
+      - xpack.security.transport.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-1g} -Xmx${ES_HEAP_SIZE:-1g}"
+    mem_limit: ${ES_MEM_LIMIT:-2g}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata03:/usr/share/elasticsearch/data
+    ports:
+      - 9202:9200
+      - 9302:9300
+    networks:
+      - elastic
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    labels:
+      - "observability.component=elasticsearch"
+      - "observability.role=master,data,ingest"
+
+  # ==========================================================================
+  # KIBANA
+  # ==========================================================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-8.11.0}
+    container_name: kibana
+    depends_on:
+      es01:
+        condition: service_healthy
+      es02:
+        condition: service_healthy
+      es03:
+        condition: service_healthy
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://es01:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY:-c34d38b3a14956121ff2170e5030b471551370178f43e5626eec58b04a30fae2}
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY:-c34d38b3a14956121ff2170e5030b471551370178f43e5626eec58b04a30fae2}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY:-c34d38b3a14956121ff2170e5030b471551370178f43e5626eec58b04a30fae2}
+    mem_limit: ${KIBANA_MEM_LIMIT:-1g}
+    volumes:
+      - certs:/usr/share/kibana/config/certs
+      - kibanadata:/usr/share/kibana/data
+    ports:
+      - ${KIBANA_PORT:-5601}:5601
+    networks:
+      - elastic
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    labels:
+      - "observability.component=kibana"
+
+  # ==========================================================================
+  # PROMETHEUS
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v2.47.0}
+    container_name: prometheus
+    depends_on:
+      - elasticsearch-exporter
+      - blackbox-exporter
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules/:/etc/prometheus/rules/:ro
+      - prometheus_data:/prometheus
+    ports:
+      - ${PROMETHEUS_PORT:-9090}:9090
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=prometheus"
+
+  # ==========================================================================
+  # ALERTMANAGER
+  # ==========================================================================
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.27.0}
+    container_name: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+      - '--cluster.listen-address='
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - ${ALERTMANAGER_PORT:-9093}:9093
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=alertmanager"
+
+  # ==========================================================================
+  # GRAFANA
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-10.2.0}
+    container_name: grafana
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      - GF_FEATURE_TOGGLES_ENABLE=publicDashboards
+      # Elasticsearch datasource credentials
+      - ES_HOSTS=https://es01:9200
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+      - certs:/etc/grafana/certs:ro
+    ports:
+      - ${GRAFANA_PORT:-3000}:3000
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=grafana"
+
+  # ==========================================================================
+  # ELASTICSEARCH EXPORTER
+  # ==========================================================================
+  elasticsearch-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:${ES_EXPORTER_VERSION:-v1.6.0}
+    container_name: elasticsearch-exporter
+    depends_on:
+      es01:
+        condition: service_healthy
+    command:
+      - '--es.uri=https://elastic:${ELASTIC_PASSWORD}@es01:9200'
+      - '--es.ssl-skip-verify'
+      - '--es.all'
+      - '--es.indices'
+      - '--es.indices_settings'
+      - '--es.indices_mappings'
+      - '--es.shards'
+      - '--es.snapshots'
+      - '--es.cluster_settings'
+      - '--es.timeout=30s'
+      - '--web.listen-address=:9114'
+      - '--web.telemetry-path=/metrics'
+    ports:
+      - 9114:9114
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=elasticsearch-exporter"
+
+  # ==========================================================================
+  # BLACKBOX EXPORTER
+  # ==========================================================================
+  blackbox-exporter:
+    image: prom/blackbox-exporter:${BLACKBOX_VERSION:-v0.24.0}
+    container_name: blackbox-exporter
+    command:
+      - '--config.file=/etc/blackbox/blackbox.yml'
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports:
+      - 9115:9115
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=blackbox-exporter"
+
+  # ==========================================================================
+  # OPENTELEMETRY COLLECTOR
+  # ==========================================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTEL_VERSION:-0.88.0}
+    container_name: otel-collector
+    command:
+      - '--config=/etc/otel/otel-collector-config.yml'
+    volumes:
+      - ./otel/otel-collector-config.yml:/etc/otel/otel-collector-config.yml:ro
+    ports:
+      - 4317:4317   # OTLP gRPC receiver
+      - 4318:4318   # OTLP HTTP receiver
+      - 8888:8888   # Prometheus metrics exposed by the collector
+      - 8889:8889   # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 55679:55679 # zpages extension
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=otel-collector"
+
+  # ==========================================================================
+  # LOG INJECTOR
+  # ==========================================================================
+  log-injector:
+    build:
+      context: ./log-injector
+      dockerfile: Dockerfile
+    container_name: log-injector
+    depends_on:
+      es01:
+        condition: service_healthy
+    environment:
+      - ES_HOST=https://es01:9200
+      - ES_USER=elastic
+      - ES_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_VERIFY_CERTS=false
+      - INJECTION_RATE=${LOG_INJECTION_RATE:-10}
+      - INDEX_PREFIX=${LOG_INDEX_PREFIX:-logs}
+    volumes:
+      - certs:/app/certs:ro
+    networks:
+      - elastic
+    profiles:
+      - inject
+    labels:
+      - "observability.component=log-injector"
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  elastic:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  certs:
+    driver: local
+  esdata01:
+    driver: local
+  esdata02:
+    driver: local
+  esdata03:
+    driver: local
+  kibanadata:
+    driver: local
+  prometheus_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  grafana_data:
+    driver: local

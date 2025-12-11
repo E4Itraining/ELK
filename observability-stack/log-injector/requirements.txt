@@ -1,0 +1,3 @@
+# Log Injector Dependencies
+elasticsearch>=8.0.0,<9.0.0
+urllib3>=1.26.0,<2.0.0

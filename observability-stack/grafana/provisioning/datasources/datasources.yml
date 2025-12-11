@@ -1,0 +1,155 @@
+# ============================================================================
+# GRAFANA DATASOURCES PROVISIONING
+# ============================================================================
+# Documentation: https://grafana.com/docs/grafana/latest/administration/provisioning/
+# ============================================================================
+
+apiVersion: 1
+
+# ----------------------------------------------------------------------------
+# DATASOURCES
+# ----------------------------------------------------------------------------
+datasources:
+  # ==========================================================================
+  # PROMETHEUS - Metriques
+  # ==========================================================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    uid: prometheus
+    jsonData:
+      # Intervalle de scrape
+      timeInterval: "15s"
+      # Methode HTTP
+      httpMethod: POST
+      # Incremental queries
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: "10m"
+      # Query timeout
+      queryTimeout: "60s"
+      # Exemplars
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+    version: 1
+
+  # ==========================================================================
+  # ALERTMANAGER - Alertes
+  # ==========================================================================
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    uid: alertmanager
+    jsonData:
+      implementation: prometheus
+    version: 1
+
+  # ==========================================================================
+  # ELASTICSEARCH - Logs
+  # ==========================================================================
+  - name: Elasticsearch-Logs
+    type: elasticsearch
+    access: proxy
+    url: https://es01:9200
+    database: "logs-*"
+    editable: false
+    uid: elasticsearch-logs
+    basicAuth: true
+    basicAuthUser: elastic
+    secureJsonData:
+      basicAuthPassword: ${ELASTIC_PASSWORD}
+    jsonData:
+      esVersion: "8.0.0"
+      timeField: "@timestamp"
+      logMessageField: "message"
+      logLevelField: "level"
+      maxConcurrentShardRequests: 5
+      tlsSkipVerify: true
+    version: 1
+
+  # ==========================================================================
+  # ELASTICSEARCH - Metrics (Index ai-metrics-*)
+  # ==========================================================================
+  - name: Elasticsearch-Metrics
+    type: elasticsearch
+    access: proxy
+    url: https://es01:9200
+    database: "metrics-*"
+    editable: false
+    uid: elasticsearch-metrics
+    basicAuth: true
+    basicAuthUser: elastic
+    secureJsonData:
+      basicAuthPassword: ${ELASTIC_PASSWORD}
+    jsonData:
+      esVersion: "8.0.0"
+      timeField: "@timestamp"
+      maxConcurrentShardRequests: 5
+      tlsSkipVerify: true
+    version: 1
+
+# ============================================================================
+# DATASOURCES FUTURES (decommenter selon besoin)
+# ============================================================================
+
+#   # ==========================================================================
+#   # LOKI - Logs centralises
+#   # ==========================================================================
+#   - name: Loki
+#     type: loki
+#     access: proxy
+#     url: http://loki:3100
+#     editable: false
+#     uid: loki
+#     jsonData:
+#       derivedFields:
+#         - name: TraceID
+#           matcherRegex: "trace_id=(\\w+)"
+#           url: "$${__value.raw}"
+#           datasourceUid: tempo
+#     version: 1
+
+#   # ==========================================================================
+#   # TEMPO - Traces distribuees
+#   # ==========================================================================
+#   - name: Tempo
+#     type: tempo
+#     access: proxy
+#     url: http://tempo:3200
+#     editable: false
+#     uid: tempo
+#     jsonData:
+#       tracesToLogs:
+#         datasourceUid: loki
+#         tags: ['app', 'namespace']
+#         mappedTags: [{ key: 'service.name', value: 'service' }]
+#         mapTagNamesEnabled: true
+#         spanStartTimeShift: '-1h'
+#         spanEndTimeShift: '1h'
+#         filterByTraceID: true
+#         filterBySpanID: false
+#       tracesToMetrics:
+#         datasourceUid: prometheus
+#         tags: [{ key: 'service.name', value: 'service' }]
+#         queries:
+#           - name: 'Request rate'
+#             query: 'sum(rate(traces_spanmetrics_calls_total{$__tags}[1m]))'
+#       serviceMap:
+#         datasourceUid: prometheus
+#       nodeGraph:
+#         enabled: true
+#       search:
+#         hide: false
+#       lokiSearch:
+#         datasourceUid: loki
+#     version: 1
+
+# ----------------------------------------------------------------------------
+# DELETE DATASOURCES (pour nettoyer les anciennes configs)
+# ----------------------------------------------------------------------------
+deleteDatasources: []

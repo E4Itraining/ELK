@@ -1,0 +1,236 @@
+# ============================================================================
+# ALERTMANAGER CONFIGURATION
+# ============================================================================
+# Documentation: https://prometheus.io/docs/alerting/latest/configuration/
+# ============================================================================
+
+global:
+  # Duree de resolution automatique si pas de mise a jour
+  resolve_timeout: 5m
+
+  # Configuration SMTP (decommenter si utilise)
+  # smtp_smarthost: 'smtp.example.com:587'
+  # smtp_from: 'alertmanager@example.com'
+  # smtp_auth_username: 'alertmanager@example.com'
+  # smtp_auth_password: 'password'
+  # smtp_require_tls: true
+
+  # Configuration Slack (decommenter si utilise)
+  # slack_api_url: 'https://hooks.slack.com/services/xxx/yyy/zzz'
+
+# ----------------------------------------------------------------------------
+# TEMPLATES
+# ----------------------------------------------------------------------------
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# ----------------------------------------------------------------------------
+# ROUTE - Arbre de routage des alertes
+# ----------------------------------------------------------------------------
+route:
+  # Route par defaut - toutes les alertes non matchees
+  receiver: 'default-receiver'
+
+  # Groupement des alertes
+  group_by: ['alertname', 'cluster', 'service']
+
+  # Temps avant d'envoyer la premiere notification
+  group_wait: 30s
+
+  # Temps entre les notifications pour le meme groupe
+  group_interval: 5m
+
+  # Temps avant de re-envoyer une notification
+  repeat_interval: 4h
+
+  # Routes specifiques
+  routes:
+    # -------------------------------------------------------------------------
+    # CRITICAL ALERTS - Notification immediate
+    # -------------------------------------------------------------------------
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true
+
+    # -------------------------------------------------------------------------
+    # ELASTICSEARCH ALERTS
+    # -------------------------------------------------------------------------
+    - match:
+        service: elasticsearch
+      receiver: 'elasticsearch-receiver'
+      group_by: ['alertname', 'node', 'category']
+      routes:
+        - match:
+            category: cluster
+          receiver: 'elasticsearch-critical'
+          group_wait: 10s
+        - match:
+            category: jvm
+          receiver: 'elasticsearch-receiver'
+        - match:
+            category: disk
+          receiver: 'elasticsearch-disk'
+
+    # -------------------------------------------------------------------------
+    # SLO ALERTS
+    # -------------------------------------------------------------------------
+    - match:
+        category: slo
+      receiver: 'slo-receiver'
+      group_by: ['alertname']
+      repeat_interval: 2h
+
+    # -------------------------------------------------------------------------
+    # SSL ALERTS
+    # -------------------------------------------------------------------------
+    - match:
+        category: ssl
+      receiver: 'ssl-receiver'
+      group_by: ['alertname', 'instance']
+      repeat_interval: 24h
+
+# ----------------------------------------------------------------------------
+# INHIBITION RULES - Supprimer les alertes redondantes
+# ----------------------------------------------------------------------------
+inhibit_rules:
+  # Si cluster RED, supprimer les alertes YELLOW
+  - source_match:
+      alertname: ElasticsearchClusterRed
+    target_match:
+      alertname: ElasticsearchClusterYellow
+    equal: ['cluster']
+
+  # Si noeud down, supprimer les alertes de performance pour ce noeud
+  - source_match:
+      alertname: ElasticsearchNodeDown
+    target_match_re:
+      alertname: 'Elasticsearch.*'
+      category: '(jvm|performance|disk)'
+    equal: ['cluster']
+
+  # Si endpoint down, supprimer les alertes de latence
+  - source_match:
+      alertname: EndpointDown
+    target_match:
+      alertname: EndpointSlowResponse
+    equal: ['instance']
+
+  # Inhiber les alertes warning si critical sur le meme service
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname', 'service']
+
+# ----------------------------------------------------------------------------
+# RECEIVERS
+# ----------------------------------------------------------------------------
+receivers:
+  # -------------------------------------------------------------------------
+  # DEFAULT RECEIVER - Webhook local pour debug
+  # -------------------------------------------------------------------------
+  - name: 'default-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+
+  # -------------------------------------------------------------------------
+  # CRITICAL RECEIVER
+  # -------------------------------------------------------------------------
+  - name: 'critical-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/critical'
+        send_resolved: true
+    # Decommenter pour Slack
+    # slack_configs:
+    #   - channel: '#alerts-critical'
+    #     send_resolved: true
+    #     title: '{{ template "slack.title" . }}'
+    #     text: '{{ template "slack.text" . }}'
+    #     color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  # -------------------------------------------------------------------------
+  # ELASTICSEARCH RECEIVERS
+  # -------------------------------------------------------------------------
+  - name: 'elasticsearch-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/elasticsearch'
+        send_resolved: true
+
+  - name: 'elasticsearch-critical'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/elasticsearch/critical'
+        send_resolved: true
+    # slack_configs:
+    #   - channel: '#elasticsearch-alerts'
+    #     send_resolved: true
+
+  - name: 'elasticsearch-disk'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/elasticsearch/disk'
+        send_resolved: true
+
+  # -------------------------------------------------------------------------
+  # SLO RECEIVER
+  # -------------------------------------------------------------------------
+  - name: 'slo-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/slo'
+        send_resolved: true
+
+  # -------------------------------------------------------------------------
+  # SSL RECEIVER
+  # -------------------------------------------------------------------------
+  - name: 'ssl-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/ssl'
+        send_resolved: true
+    # email_configs:
+    #   - to: 'security@example.com'
+    #     send_resolved: true
+
+# ============================================================================
+# EXEMPLE DE CONFIGURATION SLACK (decommenter selon besoin)
+# ============================================================================
+# receivers:
+#   - name: 'slack-critical'
+#     slack_configs:
+#       - api_url: 'https://hooks.slack.com/services/xxx/yyy/zzz'
+#         channel: '#alerts-critical'
+#         send_resolved: true
+#         icon_emoji: ':rotating_light:'
+#         title: '{{ if eq .Status "firing" }}:fire: CRITICAL{{ else }}:white_check_mark: Resolved{{ end }}'
+#         text: >-
+#           {{ range .Alerts }}
+#           *Alert:* {{ .Annotations.summary }}
+#           *Description:* {{ .Annotations.description }}
+#           *Severity:* {{ .Labels.severity }}
+#           *Service:* {{ .Labels.service }}
+#           {{ end }}
+#         actions:
+#           - type: button
+#             text: 'View in Grafana'
+#             url: '{{ (index .Alerts 0).Annotations.dashboard_url }}'
+#           - type: button
+#             text: 'Runbook'
+#             url: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+
+# ============================================================================
+# EXEMPLE DE CONFIGURATION EMAIL (decommenter selon besoin)
+# ============================================================================
+# receivers:
+#   - name: 'email-team'
+#     email_configs:
+#       - to: 'team@example.com'
+#         from: 'alertmanager@example.com'
+#         smarthost: 'smtp.example.com:587'
+#         auth_username: 'alertmanager@example.com'
+#         auth_password: 'password'
+#         send_resolved: true
+#         html: '{{ template "email.html" . }}'
+#         headers:
+#           Subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'

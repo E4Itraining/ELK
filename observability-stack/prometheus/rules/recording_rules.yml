@@ -1,0 +1,317 @@
+# ============================================================================
+# PROMETHEUS RECORDING RULES
+# ============================================================================
+# Pre-calcule des metriques pour optimiser les requetes
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # ELASTICSEARCH CLUSTER METRICS
+  # ==========================================================================
+  - name: elasticsearch_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Cluster Availability
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:cluster:status
+        expr: |
+          elasticsearch_cluster_health_status{color="green"} * 0 +
+          elasticsearch_cluster_health_status{color="yellow"} * 1 +
+          elasticsearch_cluster_health_status{color="red"} * 2
+
+      - record: elasticsearch:cluster:is_healthy
+        expr: |
+          elasticsearch_cluster_health_status{color="green"} == 1
+
+      # ------------------------------------------------------------------------
+      # Node Count
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:cluster:node_count
+        expr: elasticsearch_cluster_health_number_of_nodes
+
+      - record: elasticsearch:cluster:data_node_count
+        expr: elasticsearch_cluster_health_number_of_data_nodes
+
+      # ------------------------------------------------------------------------
+      # Shard Statistics
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:shards:total
+        expr: elasticsearch_cluster_health_active_shards
+
+      - record: elasticsearch:shards:primary
+        expr: elasticsearch_cluster_health_active_primary_shards
+
+      - record: elasticsearch:shards:unassigned
+        expr: elasticsearch_cluster_health_unassigned_shards
+
+      - record: elasticsearch:shards:relocating
+        expr: elasticsearch_cluster_health_relocating_shards
+
+      - record: elasticsearch:shards:initializing
+        expr: elasticsearch_cluster_health_initializing_shards
+
+      - record: elasticsearch:shards:delayed_unassigned
+        expr: elasticsearch_cluster_health_delayed_unassigned_shards
+
+  # ==========================================================================
+  # ELASTICSEARCH JVM METRICS
+  # ==========================================================================
+  - name: elasticsearch_jvm_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # JVM Heap Usage
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:jvm:heap_used_bytes
+        expr: elasticsearch_jvm_memory_used_bytes{area="heap"}
+
+      - record: elasticsearch:jvm:heap_max_bytes
+        expr: elasticsearch_jvm_memory_max_bytes{area="heap"}
+
+      - record: elasticsearch:jvm:heap_usage_ratio
+        expr: |
+          elasticsearch_jvm_memory_used_bytes{area="heap"}
+          / elasticsearch_jvm_memory_max_bytes{area="heap"}
+
+      # ------------------------------------------------------------------------
+      # JVM Non-Heap
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:jvm:nonheap_used_bytes
+        expr: elasticsearch_jvm_memory_used_bytes{area="non-heap"}
+
+      # ------------------------------------------------------------------------
+      # GC Metrics
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:jvm:gc_count_rate:5m
+        expr: rate(elasticsearch_jvm_gc_collection_seconds_count[5m])
+
+      - record: elasticsearch:jvm:gc_time_rate:5m
+        expr: rate(elasticsearch_jvm_gc_collection_seconds_sum[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH INDEXING METRICS
+  # ==========================================================================
+  - name: elasticsearch_indexing_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Indexing Rate
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indexing:rate:5m
+        expr: sum(rate(elasticsearch_indices_indexing_index_total[5m]))
+
+      - record: elasticsearch:indexing:rate:5m:by_node
+        expr: rate(elasticsearch_indices_indexing_index_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Indexing Latency
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indexing:latency_avg:5m
+        expr: |
+          rate(elasticsearch_indices_indexing_index_time_seconds_total[5m])
+          / rate(elasticsearch_indices_indexing_index_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Delete Rate
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indexing:delete_rate:5m
+        expr: sum(rate(elasticsearch_indices_indexing_delete_total[5m]))
+
+      # ------------------------------------------------------------------------
+      # Bulk Operations
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:bulk:rate:5m
+        expr: sum(rate(elasticsearch_indices_bulk_total[5m]))
+
+      - record: elasticsearch:bulk:latency_avg:5m
+        expr: |
+          rate(elasticsearch_indices_bulk_time_seconds_total[5m])
+          / rate(elasticsearch_indices_bulk_total[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH SEARCH METRICS
+  # ==========================================================================
+  - name: elasticsearch_search_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Search Rate
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:search:query_rate:5m
+        expr: sum(rate(elasticsearch_indices_search_query_total[5m]))
+
+      - record: elasticsearch:search:query_rate:5m:by_node
+        expr: rate(elasticsearch_indices_search_query_total[5m])
+
+      - record: elasticsearch:search:fetch_rate:5m
+        expr: sum(rate(elasticsearch_indices_search_fetch_total[5m]))
+
+      # ------------------------------------------------------------------------
+      # Search Latency
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:search:query_latency_avg:5m
+        expr: |
+          rate(elasticsearch_indices_search_query_time_seconds_total[5m])
+          / rate(elasticsearch_indices_search_query_total[5m])
+
+      - record: elasticsearch:search:fetch_latency_avg:5m
+        expr: |
+          rate(elasticsearch_indices_search_fetch_time_seconds_total[5m])
+          / rate(elasticsearch_indices_search_fetch_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Search Scroll
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:search:scroll_rate:5m
+        expr: sum(rate(elasticsearch_indices_search_scroll_total[5m]))
+
+      - record: elasticsearch:search:scroll_current
+        expr: sum(elasticsearch_indices_search_scroll_current)
+
+  # ==========================================================================
+  # ELASTICSEARCH DISK METRICS
+  # ==========================================================================
+  - name: elasticsearch_disk_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Disk Usage
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:disk:total_bytes
+        expr: elasticsearch_filesystem_data_size_bytes
+
+      - record: elasticsearch:disk:free_bytes
+        expr: elasticsearch_filesystem_data_free_bytes
+
+      - record: elasticsearch:disk:used_bytes
+        expr: |
+          elasticsearch_filesystem_data_size_bytes
+          - elasticsearch_filesystem_data_free_bytes
+
+      - record: elasticsearch:disk:usage_ratio
+        expr: |
+          1 - (elasticsearch_filesystem_data_free_bytes
+               / elasticsearch_filesystem_data_size_bytes)
+
+      # ------------------------------------------------------------------------
+      # Store Size
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indices:store_size_bytes
+        expr: sum(elasticsearch_indices_store_size_bytes_total)
+
+      - record: elasticsearch:indices:store_size_bytes:by_node
+        expr: elasticsearch_indices_store_size_bytes_total
+
+  # ==========================================================================
+  # SLO RECORDING RULES
+  # ==========================================================================
+  - name: slo_recording_rules
+    interval: 1m
+    rules:
+      # ------------------------------------------------------------------------
+      # Availability SLO (99.9%)
+      # ------------------------------------------------------------------------
+      - record: slo:elasticsearch:availability:target
+        expr: 0.999
+
+      - record: slo:elasticsearch:availability:current
+        expr: |
+          avg_over_time(elasticsearch:cluster:is_healthy[1h])
+
+      - record: slo:elasticsearch:availability:budget_consumed
+        expr: |
+          (1 - slo:elasticsearch:availability:current)
+          / (1 - slo:elasticsearch:availability:target)
+
+      - record: slo:elasticsearch:availability:budget_remaining
+        expr: |
+          1 - slo:elasticsearch:availability:budget_consumed
+
+      # ------------------------------------------------------------------------
+      # Latency SLO (p95 < 500ms)
+      # ------------------------------------------------------------------------
+      - record: slo:elasticsearch:latency:target_seconds
+        expr: 0.5
+
+      - record: slo:elasticsearch:latency:current_p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(elasticsearch_http_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: slo:elasticsearch:latency:within_target
+        expr: |
+          (slo:elasticsearch:latency:current_p95 < slo:elasticsearch:latency:target_seconds)
+          or vector(0)
+
+  # ==========================================================================
+  # BLACKBOX PROBE METRICS
+  # ==========================================================================
+  - name: blackbox_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Probe Success Rate
+      # ------------------------------------------------------------------------
+      - record: probe:success_rate:5m
+        expr: avg_over_time(probe_success[5m])
+
+      - record: probe:success_rate:5m:by_job
+        expr: avg_over_time(probe_success[5m]) by (job, instance)
+
+      # ------------------------------------------------------------------------
+      # Probe Duration
+      # ------------------------------------------------------------------------
+      - record: probe:duration_avg:5m
+        expr: avg_over_time(probe_duration_seconds[5m])
+
+      - record: probe:duration_p95:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(probe_duration_seconds_bucket[5m])) by (le, job)
+          )
+
+      # ------------------------------------------------------------------------
+      # SSL Certificate Expiry
+      # ------------------------------------------------------------------------
+      - record: probe:ssl_cert_expiry_days
+        expr: |
+          (probe_ssl_earliest_cert_expiry - time()) / 86400
+
+  # ==========================================================================
+  # OTEL COLLECTOR METRICS
+  # ==========================================================================
+  - name: otel_collector_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Received Metrics
+      # ------------------------------------------------------------------------
+      - record: otel:receiver:accepted_rate:5m
+        expr: |
+          sum(rate(otelcol_receiver_accepted_metric_points[5m])) by (receiver)
+
+      - record: otel:receiver:refused_rate:5m
+        expr: |
+          sum(rate(otelcol_receiver_refused_metric_points[5m])) by (receiver)
+
+      # ------------------------------------------------------------------------
+      # Exported Metrics
+      # ------------------------------------------------------------------------
+      - record: otel:exporter:sent_rate:5m
+        expr: |
+          sum(rate(otelcol_exporter_sent_metric_points[5m])) by (exporter)
+
+      - record: otel:exporter:failed_rate:5m
+        expr: |
+          sum(rate(otelcol_exporter_send_failed_metric_points[5m])) by (exporter)
+
+      # ------------------------------------------------------------------------
+      # Processing
+      # ------------------------------------------------------------------------
+      - record: otel:processor:batch_size_avg
+        expr: |
+          avg(otelcol_processor_batch_batch_send_size_sum
+              / otelcol_processor_batch_batch_send_size_count) by (processor)
