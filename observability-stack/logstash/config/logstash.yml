@@ -55,8 +55,11 @@ dead_letter_queue.retain.age: 7d
 # ----------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------
+# Note: Using 'plain' format instead of 'json' to avoid NilClass recursion issue.
+# The JSON serializer causes infinite recursion when logging Ruby objects
+# (like the translate filter's dictionary) during startup.
 log.level: info
-log.format: json
+log.format: plain
 slowlog.threshold.warn: 2s
 slowlog.threshold.info: 1s
 slowlog.threshold.debug: 500ms
