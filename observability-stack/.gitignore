@@ -1,0 +1,61 @@
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Keep example files
+!.env.example
+
+# Docker volumes data (if mounted locally)
+data/
+volumes/
+
+# Elasticsearch data
+esdata*/
+
+# Prometheus data
+prometheus_data/
+
+# Grafana data
+grafana_data/
+
+# Alertmanager data
+alertmanager_data/
+
+# Certificates (should be generated, not committed)
+certs/
+*.pem
+*.key
+*.crt
+*.p12
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

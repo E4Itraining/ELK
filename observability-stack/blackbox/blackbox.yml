@@ -1,0 +1,193 @@
+# ============================================================================
+# BLACKBOX EXPORTER CONFIGURATION
+# ============================================================================
+# Documentation: https://github.com/prometheus/blackbox_exporter
+# ============================================================================
+
+modules:
+  # ==========================================================================
+  # HTTP PROBES
+  # ==========================================================================
+
+  # HTTP 2xx - Standard HTTP check
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      method: GET
+      headers:
+        Accept: "application/json"
+      no_follow_redirects: false
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      preferred_ip_protocol: "ip4"
+      ip_protocol_fallback: true
+
+  # HTTP 2xx - Skip TLS verification (for self-signed certs)
+  http_2xx_skip_tls:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 401]  # 401 = auth required = ES is up
+      method: GET
+      no_follow_redirects: false
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+      tls_config:
+        insecure_skip_verify: true
+      preferred_ip_protocol: "ip4"
+
+  # HTTP POST check
+  http_post_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      method: POST
+      headers:
+        Content-Type: "application/json"
+      preferred_ip_protocol: "ip4"
+
+  # HTTP with basic auth
+  http_basic_auth:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      basic_auth:
+        username: "probe"
+        password: "probe"
+      tls_config:
+        insecure_skip_verify: true
+      preferred_ip_protocol: "ip4"
+
+  # HTTPS with SSL certificate validation
+  https_ssl_verify:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 401]
+      method: GET
+      fail_if_ssl: false
+      fail_if_not_ssl: true
+      tls_config:
+        insecure_skip_verify: false
+      preferred_ip_protocol: "ip4"
+
+  # ==========================================================================
+  # TCP PROBES
+  # ==========================================================================
+
+  # TCP connect - Simple port check
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: "ip4"
+
+  # TCP with TLS
+  tcp_tls:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      tls: true
+      tls_config:
+        insecure_skip_verify: true
+      preferred_ip_protocol: "ip4"
+
+  # ==========================================================================
+  # ICMP PROBES (requires privileged mode)
+  # ==========================================================================
+
+  # ICMP ping
+  icmp:
+    prober: icmp
+    timeout: 5s
+    icmp:
+      preferred_ip_protocol: "ip4"
+      ip_protocol_fallback: true
+
+  # ==========================================================================
+  # DNS PROBES
+  # ==========================================================================
+
+  # DNS UDP query
+  dns_udp:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: "example.com"
+      query_type: "A"
+      valid_rcodes:
+        - NOERROR
+      preferred_ip_protocol: "ip4"
+      transport_protocol: "udp"
+
+  # DNS TCP query
+  dns_tcp:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: "example.com"
+      query_type: "A"
+      valid_rcodes:
+        - NOERROR
+      preferred_ip_protocol: "ip4"
+      transport_protocol: "tcp"
+
+  # ==========================================================================
+  # CUSTOM PROBES FOR ELASTICSEARCH
+  # ==========================================================================
+
+  # Elasticsearch cluster health check
+  elasticsearch_health:
+    prober: http
+    timeout: 15s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      headers:
+        Accept: "application/json"
+      tls_config:
+        insecure_skip_verify: true
+      fail_if_body_not_matches_regexp:
+        - '"status"\\s*:\\s*"(green|yellow)"'
+      preferred_ip_protocol: "ip4"
+
+  # Elasticsearch node availability
+  elasticsearch_node:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 401]
+      method: GET
+      tls_config:
+        insecure_skip_verify: true
+      preferred_ip_protocol: "ip4"
+
+  # ==========================================================================
+  # CUSTOM PROBES FOR KIBANA
+  # ==========================================================================
+
+  # Kibana status check
+  kibana_status:
+    prober: http
+    timeout: 15s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      headers:
+        Accept: "application/json"
+      fail_if_body_not_matches_regexp:
+        - '"status"\\s*:\\s*\\{.*"overall"\\s*:\\s*\\{.*"level"\\s*:\\s*"(available|degraded)"'
+      preferred_ip_protocol: "ip4"

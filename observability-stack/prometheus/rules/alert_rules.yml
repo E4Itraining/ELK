@@ -1,0 +1,478 @@
+# ============================================================================
+# PROMETHEUS ALERT RULES
+# ============================================================================
+# Regles d'alertes pour le monitoring de la stack d'observabilite
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # ELASTICSEARCH CLUSTER ALERTS
+  # ==========================================================================
+  - name: elasticsearch_cluster_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Cluster Health
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchClusterRed
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: cluster
+        annotations:
+          summary: "Elasticsearch cluster is RED"
+          description: "Cluster {{ $labels.cluster }} status is RED. Primary shards are missing. Immediate action required!"
+          runbook_url: "https://wiki.example.com/elasticsearch/cluster-red"
+          dashboard_url: "http://grafana:3000/d/elasticsearch-overview"
+
+      - alert: ElasticsearchClusterYellow
+        expr: elasticsearch_cluster_health_status{color="yellow"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: cluster
+        annotations:
+          summary: "Elasticsearch cluster is YELLOW"
+          description: "Cluster {{ $labels.cluster }} status is YELLOW. Some replica shards are missing."
+          runbook_url: "https://wiki.example.com/elasticsearch/cluster-yellow"
+
+      - alert: ElasticsearchClusterStatusUnknown
+        expr: |
+          absent(elasticsearch_cluster_health_status) == 1
+        for: 5m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: cluster
+        annotations:
+          summary: "Elasticsearch cluster status unknown"
+          description: "Cannot retrieve cluster health status. ES Exporter may be down."
+
+      # ------------------------------------------------------------------------
+      # Nodes
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchNodeDown
+        expr: |
+          elasticsearch_cluster_health_number_of_nodes < 3
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: nodes
+        annotations:
+          summary: "Elasticsearch node is down"
+          description: "Only {{ $value }} of 3 expected nodes are in the cluster."
+
+      - alert: ElasticsearchDataNodeDown
+        expr: |
+          elasticsearch_cluster_health_number_of_data_nodes < 3
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: nodes
+        annotations:
+          summary: "Elasticsearch data node is down"
+          description: "Only {{ $value }} of 3 expected data nodes are available."
+
+      # ------------------------------------------------------------------------
+      # Shards
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchUnassignedShards
+        expr: elasticsearch_cluster_health_unassigned_shards > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: shards
+        annotations:
+          summary: "Elasticsearch has unassigned shards"
+          description: "{{ $value }} shards are unassigned in cluster {{ $labels.cluster }}."
+          runbook_url: "https://wiki.example.com/elasticsearch/unassigned-shards"
+
+      - alert: ElasticsearchUnassignedShardsCritical
+        expr: elasticsearch_cluster_health_unassigned_shards > 10
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: shards
+        annotations:
+          summary: "Elasticsearch has many unassigned shards"
+          description: "{{ $value }} shards are unassigned. This indicates a serious problem."
+
+      - alert: ElasticsearchRelocatingShards
+        expr: elasticsearch_cluster_health_relocating_shards > 0
+        for: 30m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: shards
+        annotations:
+          summary: "Elasticsearch shards are relocating for too long"
+          description: "{{ $value }} shards have been relocating for more than 30 minutes."
+
+      - alert: ElasticsearchInitializingShards
+        expr: elasticsearch_cluster_health_initializing_shards > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: shards
+        annotations:
+          summary: "Elasticsearch shards are initializing for too long"
+          description: "{{ $value }} shards have been initializing for more than 15 minutes."
+
+  # ==========================================================================
+  # ELASTICSEARCH JVM ALERTS
+  # ==========================================================================
+  - name: elasticsearch_jvm_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Heap Usage
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchHeapUsageWarning
+        expr: elasticsearch:jvm:heap_usage_ratio > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: jvm
+        annotations:
+          summary: "Elasticsearch JVM heap usage is high"
+          description: "Node {{ $labels.name }} heap usage is {{ $value | humanizePercentage }}."
+          runbook_url: "https://wiki.example.com/elasticsearch/heap-tuning"
+
+      - alert: ElasticsearchHeapUsageCritical
+        expr: elasticsearch:jvm:heap_usage_ratio > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: jvm
+        annotations:
+          summary: "Elasticsearch JVM heap usage is critical"
+          description: "Node {{ $labels.name }} heap usage is {{ $value | humanizePercentage }}. Risk of OOM!"
+
+      - alert: ElasticsearchHeapUsageDangerous
+        expr: elasticsearch:jvm:heap_usage_ratio > 0.95
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: jvm
+        annotations:
+          summary: "Elasticsearch JVM heap usage is dangerous"
+          description: "Node {{ $labels.name }} heap is at {{ $value | humanizePercentage }}. Imminent OOM risk!"
+
+      # ------------------------------------------------------------------------
+      # GC Pressure
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchGCPressureHigh
+        expr: |
+          elasticsearch:jvm:gc_time_rate:5m > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: jvm
+        annotations:
+          summary: "Elasticsearch GC pressure is high"
+          description: "Node {{ $labels.name }} is spending {{ $value | humanizePercentage }} of time in GC."
+
+  # ==========================================================================
+  # ELASTICSEARCH PERFORMANCE ALERTS
+  # ==========================================================================
+  - name: elasticsearch_performance_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Search Latency
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchSearchLatencyWarning
+        expr: elasticsearch:search:query_latency_avg:5m > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: performance
+        annotations:
+          summary: "Elasticsearch search latency is high"
+          description: "Average search latency is {{ $value | humanizeDuration }}."
+
+      - alert: ElasticsearchSearchLatencyCritical
+        expr: elasticsearch:search:query_latency_avg:5m > 2
+        for: 5m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: performance
+        annotations:
+          summary: "Elasticsearch search latency is very high"
+          description: "Average search latency is {{ $value | humanizeDuration }}. Users are likely impacted."
+
+      # ------------------------------------------------------------------------
+      # Indexing Rate
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchIndexingRateDrop
+        expr: |
+          elasticsearch:indexing:rate:5m < 10
+          and
+          elasticsearch:indexing:rate:5m offset 1h > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: performance
+        annotations:
+          summary: "Elasticsearch indexing rate dropped significantly"
+          description: "Indexing rate dropped to {{ $value }} docs/s from historical levels."
+
+      - alert: ElasticsearchIndexingLatencyHigh
+        expr: elasticsearch:indexing:latency_avg:5m > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: performance
+        annotations:
+          summary: "Elasticsearch indexing latency is high"
+          description: "Average indexing latency is {{ $value | humanizeDuration }}."
+
+  # ==========================================================================
+  # ELASTICSEARCH DISK ALERTS
+  # ==========================================================================
+  - name: elasticsearch_disk_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Disk Usage
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchDiskUsageWarning
+        expr: elasticsearch:disk:usage_ratio > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: disk
+        annotations:
+          summary: "Elasticsearch disk usage is high"
+          description: "Node {{ $labels.name }} disk usage is {{ $value | humanizePercentage }}."
+
+      - alert: ElasticsearchDiskUsageCritical
+        expr: elasticsearch:disk:usage_ratio > 0.85
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: disk
+        annotations:
+          summary: "Elasticsearch disk usage is critical"
+          description: "Node {{ $labels.name }} disk usage is {{ $value | humanizePercentage }}. ES may become read-only!"
+          runbook_url: "https://wiki.example.com/elasticsearch/disk-full"
+
+      - alert: ElasticsearchDiskUsageDangerous
+        expr: elasticsearch:disk:usage_ratio > 0.90
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: disk
+        annotations:
+          summary: "Elasticsearch disk nearly full"
+          description: "Node {{ $labels.name }} disk is {{ $value | humanizePercentage }} full. ES has likely blocked writes!"
+
+      # ------------------------------------------------------------------------
+      # Disk Prediction
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchDiskWillFillIn24h
+        expr: |
+          predict_linear(elasticsearch:disk:free_bytes[6h], 24 * 3600) < 0
+        for: 30m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: disk
+        annotations:
+          summary: "Elasticsearch disk will fill in 24 hours"
+          description: "Based on current growth, node {{ $labels.name }} will run out of disk space within 24 hours."
+
+      - alert: ElasticsearchDiskWillFillIn6h
+        expr: |
+          predict_linear(elasticsearch:disk:free_bytes[2h], 6 * 3600) < 0
+        for: 15m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: disk
+        annotations:
+          summary: "Elasticsearch disk will fill in 6 hours"
+          description: "Based on current growth, node {{ $labels.name }} will run out of disk space within 6 hours!"
+
+  # ==========================================================================
+  # BLACKBOX PROBE ALERTS
+  # ==========================================================================
+  - name: blackbox_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Endpoint Availability
+      # ------------------------------------------------------------------------
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Blackbox probe failed for {{ $labels.instance }} ({{ $labels.job }})"
+
+      - alert: EndpointSlowResponse
+        expr: probe_duration_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is slow"
+          description: "Probe duration for {{ $labels.instance }} is {{ $value | humanizeDuration }}"
+
+      # ------------------------------------------------------------------------
+      # SSL Certificate
+      # ------------------------------------------------------------------------
+      - alert: SSLCertificateExpiringSoon
+        expr: probe:ssl_cert_expiry_days < 30
+        for: 1h
+        labels:
+          severity: warning
+          category: ssl
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "Certificate for {{ $labels.instance }} expires in {{ $value | humanize }} days."
+
+      - alert: SSLCertificateExpiringCritical
+        expr: probe:ssl_cert_expiry_days < 7
+        for: 1h
+        labels:
+          severity: critical
+          category: ssl
+        annotations:
+          summary: "SSL certificate expiring very soon"
+          description: "Certificate for {{ $labels.instance }} expires in {{ $value | humanize }} days!"
+
+      - alert: SSLCertificateExpired
+        expr: probe:ssl_cert_expiry_days < 0
+        for: 0m
+        labels:
+          severity: critical
+          category: ssl
+        annotations:
+          summary: "SSL certificate has expired"
+          description: "Certificate for {{ $labels.instance }} has expired!"
+
+  # ==========================================================================
+  # SLO ALERTS
+  # ==========================================================================
+  - name: slo_alerts
+    interval: 1m
+    rules:
+      # ------------------------------------------------------------------------
+      # Availability SLO
+      # ------------------------------------------------------------------------
+      - alert: SLOBudgetBurning
+        expr: slo:elasticsearch:availability:budget_remaining < 0.5
+        for: 5m
+        labels:
+          severity: warning
+          category: slo
+        annotations:
+          summary: "SLO budget is burning"
+          description: "Only {{ $value | humanizePercentage }} of availability error budget remaining."
+
+      - alert: SLOBudgetCritical
+        expr: slo:elasticsearch:availability:budget_remaining < 0.2
+        for: 5m
+        labels:
+          severity: critical
+          category: slo
+        annotations:
+          summary: "SLO budget is critically low"
+          description: "Only {{ $value | humanizePercentage }} of availability error budget remaining!"
+
+      - alert: SLOBudgetExhausted
+        expr: slo:elasticsearch:availability:budget_remaining < 0
+        for: 0m
+        labels:
+          severity: critical
+          category: slo
+        annotations:
+          summary: "SLO budget exhausted"
+          description: "Availability SLO has been breached. Error budget is exhausted."
+
+  # ==========================================================================
+  # OTEL COLLECTOR ALERTS
+  # ==========================================================================
+  - name: otel_collector_alerts
+    interval: 30s
+    rules:
+      - alert: OtelCollectorRefusingData
+        expr: otel:receiver:refused_rate:5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: otel-collector
+        annotations:
+          summary: "OTEL Collector refusing data"
+          description: "{{ $labels.receiver }} is refusing {{ $value }} metric points/s"
+
+      - alert: OtelCollectorExportFailures
+        expr: otel:exporter:failed_rate:5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: otel-collector
+        annotations:
+          summary: "OTEL Collector export failures"
+          description: "{{ $labels.exporter }} is failing to export {{ $value }} metric points/s"
+
+  # ==========================================================================
+  # PROMETHEUS SELF-MONITORING
+  # ==========================================================================
+  - name: prometheus_alerts
+    interval: 30s
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: "Target {{ $labels.instance }} in job {{ $labels.job }} has been down for 5 minutes."
+
+      - alert: PrometheusConfigurationReloadFailure
+        expr: prometheus_config_last_reload_successful != 1
+        for: 5m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus configuration reload failed"
+          description: "Prometheus failed to reload its configuration."
+
+      - alert: PrometheusTSDBCompactionsFailing
+        expr: increase(prometheus_tsdb_compactions_failed_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: prometheus
+        annotations:
+          summary: "Prometheus TSDB compactions are failing"
+          description: "{{ $value }} TSDB compactions have failed in the last hour."

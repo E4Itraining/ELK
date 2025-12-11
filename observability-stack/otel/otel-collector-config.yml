@@ -1,0 +1,315 @@
+# ============================================================================
+# OPENTELEMETRY COLLECTOR CONFIGURATION
+# ============================================================================
+# Documentation: https://opentelemetry.io/docs/collector/configuration/
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# RECEIVERS - Sources de donnees entrantes
+# ----------------------------------------------------------------------------
+receivers:
+  # ==========================================================================
+  # OTLP RECEIVER (gRPC + HTTP)
+  # ==========================================================================
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 4
+        max_concurrent_streams: 100
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "*"
+          allowed_headers:
+            - "*"
+
+  # ==========================================================================
+  # PROMETHEUS RECEIVER - Scrape des metriques
+  # ==========================================================================
+  prometheus:
+    config:
+      scrape_configs:
+        # Self-metrics du collector
+        - job_name: 'otel-collector'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:8888']
+
+  # ==========================================================================
+  # HOST METRICS RECEIVER
+  # ==========================================================================
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+      filesystem:
+      load:
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      network:
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+
+# ----------------------------------------------------------------------------
+# PROCESSORS - Transformations des donnees
+# ----------------------------------------------------------------------------
+processors:
+  # ==========================================================================
+  # BATCH PROCESSOR - Regroupement pour optimisation
+  # ==========================================================================
+  batch:
+    send_batch_size: 10000
+    send_batch_max_size: 11000
+    timeout: 10s
+
+  # ==========================================================================
+  # MEMORY LIMITER - Protection contre OOM
+  # ==========================================================================
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # ==========================================================================
+  # RESOURCE PROCESSOR - Enrichissement des ressources
+  # ==========================================================================
+  resource:
+    attributes:
+      - key: service.namespace
+        value: elk-observability
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+      - key: collector.name
+        value: otel-collector
+        action: upsert
+
+  # ==========================================================================
+  # ATTRIBUTES PROCESSOR - Manipulation des attributs
+  # ==========================================================================
+  attributes:
+    actions:
+      # Ajouter des labels standards
+      - key: environment
+        value: production
+        action: upsert
+      - key: cluster
+        value: observability-cluster
+        action: upsert
+
+  # ==========================================================================
+  # FILTER PROCESSOR - Filtrage des donnees
+  # ==========================================================================
+  filter/metrics:
+    metrics:
+      exclude:
+        match_type: regexp
+        metric_names:
+          # Exclure les metriques trop verbeuses
+          - ".*_bucket$"  # Histograms buckets (garder summary)
+        resource_attributes:
+          - key: service.name
+            value: "internal-.*"
+            action: exclude
+
+  # ==========================================================================
+  # TRANSFORM PROCESSOR - Transformations avancees
+  # ==========================================================================
+  transform/metrics:
+    metric_statements:
+      - context: datapoint
+        statements:
+          # Convertir les unites
+          - set(attributes["unit"], "bytes") where metric.name == "system.memory.usage"
+          # Ajouter timestamp de processing
+          - set(attributes["processed_at"], UnixNano())
+
+  # ==========================================================================
+  # METRICS TRANSFORM - Renommage et aggregation
+  # ==========================================================================
+  metricstransform:
+    transforms:
+      # Renommer les metriques pour coherence
+      - include: system.cpu.utilization
+        action: update
+        new_name: cpu_utilization
+      - include: system.memory.utilization
+        action: update
+        new_name: memory_utilization
+
+  # ==========================================================================
+  # PROBABILISTIC SAMPLER - Echantillonnage des traces
+  # ==========================================================================
+  probabilistic_sampler:
+    sampling_percentage: 100  # 100% pour demo, reduire en prod
+
+# ----------------------------------------------------------------------------
+# EXPORTERS - Destinations des donnees
+# ----------------------------------------------------------------------------
+exporters:
+  # ==========================================================================
+  # PROMETHEUS EXPORTER - Expose les metriques pour scraping
+  # ==========================================================================
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      source: "otel-collector"
+    namespace: otel
+    send_timestamps: true
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # ==========================================================================
+  # PROMETHEUS REMOTE WRITE (optionnel)
+  # ==========================================================================
+  # prometheusremotewrite:
+  #   endpoint: "http://prometheus:9090/api/v1/write"
+  #   tls:
+  #     insecure: true
+
+  # ==========================================================================
+  # OTLP EXPORTER (vers autre collector ou backend)
+  # ==========================================================================
+  # otlp:
+  #   endpoint: "tempo:4317"
+  #   tls:
+  #     insecure: true
+
+  # ==========================================================================
+  # ELASTICSEARCH EXPORTER (pour logs/traces)
+  # ==========================================================================
+  # elasticsearch:
+  #   endpoints:
+  #     - https://es01:9200
+  #   user: elastic
+  #   password: ${ELASTIC_PASSWORD}
+  #   tls:
+  #     insecure_skip_verify: true
+  #   logs_index: otel-logs
+  #   traces_index: otel-traces
+
+  # ==========================================================================
+  # LOGGING EXPORTER - Debug
+  # ==========================================================================
+  logging:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # ==========================================================================
+  # DEBUG EXPORTER - Plus detaille
+  # ==========================================================================
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+# ----------------------------------------------------------------------------
+# EXTENSIONS - Fonctionnalites additionnelles
+# ----------------------------------------------------------------------------
+extensions:
+  # ==========================================================================
+  # HEALTH CHECK
+  # ==========================================================================
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: "/health"
+    check_collector_pipeline:
+      enabled: true
+      interval: "5m"
+      exporter_failure_threshold: 5
+
+  # ==========================================================================
+  # ZPAGES - Debug UI
+  # ==========================================================================
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+  # ==========================================================================
+  # PPROF - Profiling
+  # ==========================================================================
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # ==========================================================================
+  # MEMORY BALLAST - Optimisation memoire
+  # ==========================================================================
+  memory_ballast:
+    size_mib: 128
+
+# ----------------------------------------------------------------------------
+# SERVICE - Definition des pipelines
+# ----------------------------------------------------------------------------
+service:
+  extensions:
+    - health_check
+    - zpages
+    - pprof
+    - memory_ballast
+
+  telemetry:
+    logs:
+      level: info
+      development: false
+      encoding: json
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888
+
+  pipelines:
+    # ========================================================================
+    # METRICS PIPELINE
+    # ========================================================================
+    metrics:
+      receivers:
+        - otlp
+        - prometheus
+        - hostmetrics
+      processors:
+        - memory_limiter
+        - batch
+        - resource
+        - attributes
+      exporters:
+        - prometheus
+        - logging
+
+    # ========================================================================
+    # TRACES PIPELINE (pret pour Tempo/Jaeger)
+    # ========================================================================
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - batch
+        - resource
+        - probabilistic_sampler
+      exporters:
+        - logging
+        # - otlp  # Decommenter pour Tempo
+
+    # ========================================================================
+    # LOGS PIPELINE (pret pour Loki/ES)
+    # ========================================================================
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - batch
+        - resource
+      exporters:
+        - logging
+        # - elasticsearch  # Decommenter pour ES

@@ -1,0 +1,50 @@
+# ============================================================================
+# GRAFANA DASHBOARDS PROVISIONING
+# ============================================================================
+# Documentation: https://grafana.com/docs/grafana/latest/administration/provisioning/
+# ============================================================================
+
+apiVersion: 1
+
+providers:
+  # ==========================================================================
+  # ELASTICSEARCH DASHBOARDS
+  # ==========================================================================
+  - name: 'Elasticsearch'
+    orgId: 1
+    folder: 'Elasticsearch'
+    folderUid: 'elasticsearch-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/elasticsearch
+
+  # ==========================================================================
+  # OBSERVABILITY DASHBOARDS
+  # ==========================================================================
+  - name: 'Observability'
+    orgId: 1
+    folder: 'Observability'
+    folderUid: 'observability-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/observability
+
+  # ==========================================================================
+  # SLO DASHBOARDS
+  # ==========================================================================
+  - name: 'SLO'
+    orgId: 1
+    folder: 'SLO'
+    folderUid: 'slo-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/slo
