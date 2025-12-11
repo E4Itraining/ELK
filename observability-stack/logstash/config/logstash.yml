@@ -14,7 +14,8 @@ node.name: "logstash-01"
 # ----------------------------------------------------------------------------
 path.data: /usr/share/logstash/data
 path.logs: /usr/share/logstash/logs
-path.config: /usr/share/logstash/pipeline
+# Note: path.config is NOT set here because we use pipelines.yml
+# Setting both causes conflicts - pipelines.yml takes precedence
 
 # ----------------------------------------------------------------------------
 # PIPELINE SETTINGS
@@ -42,8 +43,9 @@ monitoring.enabled: false
 # ----------------------------------------------------------------------------
 queue.type: memory
 queue.max_bytes: 1gb
-queue.checkpoint.writes: 1024
-queue.checkpoint.interval: 1000
+# Note: checkpoint settings are only valid for persisted queues
+# queue.checkpoint.writes: 1024
+# queue.checkpoint.interval: 1000
 
 # ----------------------------------------------------------------------------
 # DEAD LETTER QUEUE
