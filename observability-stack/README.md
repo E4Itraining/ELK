@@ -40,10 +40,14 @@ Une architecture d'observabilite production-ready basee sur Elasticsearch 8.x, P
 |-----------|---------|------|-------------|
 | Elasticsearch | 8.11.0 | 9200-9202 | Cluster 3 noeuds (stockage logs/metriques) |
 | Kibana | 8.11.0 | 5601 | Interface d'exploration des logs |
+| Kafka | 7.5.0 | 29092-29094 | Cluster 3 noeuds (streaming de donnees) |
+| Zookeeper | 7.5.0 | 2181 | Coordination du cluster Kafka |
+| Logstash | 8.11.0 | 5044 | Pipeline d'ingestion (Kafka -> ES) |
 | Prometheus | 2.47.0 | 9090 | Collecte et stockage des metriques |
 | Alertmanager | 0.27.0 | 9093 | Gestion et routage des alertes |
 | Grafana | 10.2.0 | 3000 | Dashboards et visualisation |
 | ES Exporter | 1.6.0 | 9114 | Export metriques ES vers Prometheus |
+| Kafka Exporter | 1.7.0 | 9308 | Export metriques Kafka vers Prometheus |
 | Blackbox Exporter | 0.24.0 | 9115 | Probes HTTP/TCP/ICMP |
 | OTEL Collector | 0.88.0 | 4317/4318 | Collecte OTLP (metriques/traces/logs) |
 
@@ -204,6 +208,87 @@ docker compose down
 
 # Arreter et supprimer les volumes
 docker compose down -v
+```
+
+## Troubleshooting
+
+### Probleme: "dependency failed to start: container kafka01 is unhealthy"
+
+Ce probleme survient generalement quand des conteneurs orphelins ou des volumes corrompus subsistent d'une execution precedente.
+
+**Solution:**
+
+```bash
+# 1. Arreter tous les conteneurs et supprimer les volumes
+docker compose down -v
+
+# 2. Supprimer les images Kafka pour forcer une reconstruction
+docker rmi kafka-with-jmx:7.5.0 2>/dev/null || true
+
+# 3. Redemarrer la stack avec reconstruction des images
+docker compose up -d --build
+```
+
+### Probleme: "no such service: #"
+
+Cette erreur survient quand vous utilisez `#` dans la ligne de commande. En bash, `#` n'est interprete comme commentaire qu'en debut de ligne.
+
+**Incorrect:**
+```bash
+docker compose down -v  # Ceci ne marche pas
+```
+
+**Correct:**
+```bash
+# Ceci est un commentaire
+docker compose down -v
+```
+
+### Probleme: Kafka ne demarre pas (erreur rapide < 5s)
+
+Verifiez les logs pour identifier la cause:
+
+```bash
+# Voir les logs de kafka01
+docker compose logs kafka01
+
+# Causes communes:
+# - Image non construite: docker compose build kafka01
+# - Port deja utilise: netstat -tlpn | grep 29092
+# - Probleme de volume: docker volume rm observability-stack_kafka01_data
+```
+
+### Probleme: Elasticsearch "ClusterBlockException" ou "master not discovered"
+
+Le cluster ES necessite que vm.max_map_count soit configure:
+
+```bash
+# Linux - appliquer immediatement
+sudo sysctl -w vm.max_map_count=262144
+
+# Linux - rendre permanent
+echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+```
+
+### Reset complet de la stack
+
+Pour repartir de zero:
+
+```bash
+# Arreter tout
+docker compose down -v
+
+# Supprimer les images personnalisees
+docker rmi kafka-with-jmx:7.5.0 2>/dev/null || true
+
+# Nettoyer les volumes orphelins
+docker volume prune -f
+
+# Verifier qu'aucun conteneur ne reste
+docker ps -a | grep observability
+
+# Redemarrer proprement
+docker compose up -d --build
 ```
 
 ## Documentation
