@@ -608,6 +608,31 @@ services:
       - "observability.component=logstash"
 
   # ==========================================================================
+  # LOGSTASH EXPORTER (Prometheus metrics from Logstash)
+  # ==========================================================================
+  logstash-exporter:
+    image: kuskoman/logstash-exporter:${LOGSTASH_EXPORTER_VERSION:-v1.6.5}
+    container_name: logstash-exporter
+    depends_on:
+      logstash:
+        condition: service_healthy
+    environment:
+      - LOGSTASH_URL=http://logstash:9600
+    ports:
+      - 9198:9198
+    networks:
+      - elastic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9198/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "observability.component=logstash-exporter"
+
+  # ==========================================================================
   # PROMETHEUS
   # ==========================================================================
   prometheus:
@@ -617,6 +642,7 @@ services:
       - elasticsearch-exporter
       - blackbox-exporter
       - kafka-exporter
+      - logstash-exporter
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'

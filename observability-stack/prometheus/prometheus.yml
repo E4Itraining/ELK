@@ -211,16 +211,16 @@ scrape_configs:
     metrics_path: /metrics
 
   # ==========================================================================
-  # LOGSTASH METRICS
+  # LOGSTASH EXPORTER METRICS
   # ==========================================================================
   - job_name: 'logstash'
     static_configs:
-      - targets: ['logstash:9600']
+      - targets: ['logstash-exporter:9198']
         labels:
           pipeline: 'main'
     scrape_interval: 15s
     scrape_timeout: 10s
-    metrics_path: /_node/stats
+    metrics_path: /metrics
 
   # ==========================================================================
   # BLACKBOX EXPORTER - KAFKA PROBES
