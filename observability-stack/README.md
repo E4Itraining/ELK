@@ -63,8 +63,10 @@ Une architecture d'observabilite production-ready basee sur Elasticsearch 8.x, P
 ### Installation
 
 ```bash
-# Cloner le repo
-cd observability-stack
+# Navigate to the observability-stack directory (from repository root)
+cd /path/to/ELK/observability-stack
+# Or if already in ELK directory:
+# cd observability-stack
 
 # Copier et configurer l'environnement
 cp .env.example .env
