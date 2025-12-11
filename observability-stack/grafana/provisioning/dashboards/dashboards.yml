@@ -48,3 +48,31 @@ providers:
     allowUiUpdates: true
     options:
       path: /var/lib/grafana/dashboards/slo
+
+  # ==========================================================================
+  # KAFKA DASHBOARDS
+  # ==========================================================================
+  - name: 'Kafka'
+    orgId: 1
+    folder: 'Kafka'
+    folderUid: 'kafka-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/kafka
+
+  # ==========================================================================
+  # LOGSTASH DASHBOARDS
+  # ==========================================================================
+  - name: 'Logstash'
+    orgId: 1
+    folder: 'Logstash'
+    folderUid: 'logstash-folder'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/logstash

@@ -31,6 +31,10 @@ alerting:
 rule_files:
   - /etc/prometheus/rules/recording_rules.yml
   - /etc/prometheus/rules/alert_rules.yml
+  - /etc/prometheus/rules/kafka_recording_rules.yml
+  - /etc/prometheus/rules/kafka_alert_rules.yml
+  - /etc/prometheus/rules/logstash_recording_rules.yml
+  - /etc/prometheus/rules/logstash_alert_rules.yml
 
 # ----------------------------------------------------------------------------
 # SCRAPE CONFIGURATIONS
@@ -173,3 +177,113 @@ scrape_configs:
     static_configs:
       - targets: ['grafana:3000']
     metrics_path: /metrics
+
+  # ==========================================================================
+  # KAFKA JMX METRICS (via JMX Exporter)
+  # ==========================================================================
+  - job_name: 'kafka-jmx'
+    static_configs:
+      - targets:
+          - kafka01:7071
+          - kafka02:7071
+          - kafka03:7071
+        labels:
+          cluster: 'kafka-cluster'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+):.*'
+        replacement: '$1'
+        target_label: broker
+
+  # ==========================================================================
+  # KAFKA EXPORTER METRICS (Consumer Lag, Topics, Partitions)
+  # ==========================================================================
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        labels:
+          cluster: 'kafka-cluster'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+
+  # ==========================================================================
+  # LOGSTASH METRICS
+  # ==========================================================================
+  - job_name: 'logstash'
+    static_configs:
+      - targets: ['logstash:9600']
+        labels:
+          pipeline: 'main'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /_node/stats
+
+  # ==========================================================================
+  # BLACKBOX EXPORTER - KAFKA PROBES
+  # ==========================================================================
+  - job_name: 'blackbox-kafka'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - kafka01:9092
+          - kafka02:9092
+          - kafka03:9092
+        labels:
+          probe_type: 'kafka'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        regex: '([^:]+):.*'
+        replacement: '$1'
+        target_label: broker
+
+  # ==========================================================================
+  # BLACKBOX EXPORTER - ZOOKEEPER PROBES
+  # ==========================================================================
+  - job_name: 'blackbox-zookeeper'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - zookeeper:2181
+        labels:
+          probe_type: 'zookeeper'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ==========================================================================
+  # BLACKBOX EXPORTER - LOGSTASH PROBES
+  # ==========================================================================
+  - job_name: 'blackbox-logstash'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://logstash:9600
+        labels:
+          probe_type: 'logstash'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

@@ -1,0 +1,331 @@
+# ============================================================================
+# PROMETHEUS ALERT RULES - LOGSTASH
+# ============================================================================
+# Regles d'alertes pour le monitoring de Logstash
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # LOGSTASH AVAILABILITY ALERTS
+  # ==========================================================================
+  - name: logstash_availability_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Logstash Down
+      # ------------------------------------------------------------------------
+      - alert: LogstashDown
+        expr: |
+          probe_success{job="blackbox-logstash"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: logstash
+          category: availability
+        annotations:
+          summary: "Logstash is down"
+          description: "Logstash instance at {{ $labels.instance }} is not responding."
+          runbook_url: "https://wiki.example.com/logstash/down"
+          dashboard_url: "http://grafana:3000/d/logstash-overview"
+
+      - alert: LogstashEndpointUnhealthy
+        expr: |
+          probe_http_status_code{job="blackbox-logstash"} != 200
+        for: 2m
+        labels:
+          severity: warning
+          service: logstash
+          category: availability
+        annotations:
+          summary: "Logstash endpoint unhealthy"
+          description: "Logstash HTTP status code is {{ $value }} (expected 200)."
+
+  # ==========================================================================
+  # LOGSTASH PIPELINE ALERTS
+  # ==========================================================================
+  - name: logstash_pipeline_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Pipeline Events
+      # ------------------------------------------------------------------------
+      - alert: LogstashPipelineNotProcessing
+        expr: |
+          rate(logstash_node_pipeline_events_out_total[5m]) == 0
+          and
+          rate(logstash_node_pipeline_events_in_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: logstash
+          category: pipeline
+        annotations:
+          summary: "Logstash pipeline not processing events"
+          description: "Pipeline {{ $labels.pipeline }} is receiving events but not outputting any."
+
+      - alert: LogstashPipelineNoInput
+        expr: |
+          rate(logstash_node_pipeline_events_in_total[10m]) == 0
+          and
+          rate(logstash_node_pipeline_events_in_total[1h] offset 1h) > 10
+        for: 15m
+        labels:
+          severity: warning
+          service: logstash
+          category: pipeline
+        annotations:
+          summary: "Logstash pipeline receiving no input"
+          description: "Pipeline {{ $labels.pipeline }} has not received any events in 15 minutes (was active before)."
+
+      # ------------------------------------------------------------------------
+      # Event Filtering
+      # ------------------------------------------------------------------------
+      - alert: LogstashHighFilteredRate
+        expr: |
+          rate(logstash_node_pipeline_events_filtered_total[5m])
+          / rate(logstash_node_pipeline_events_in_total[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: logstash
+          category: pipeline
+        annotations:
+          summary: "Logstash filtering too many events"
+          description: "Pipeline {{ $labels.pipeline }} is filtering {{ $value | humanizePercentage }} of events."
+
+      # ------------------------------------------------------------------------
+      # Event Queue
+      # ------------------------------------------------------------------------
+      - alert: LogstashQueueBackpressure
+        expr: |
+          logstash_node_pipeline_queue_push_duration_in_millis
+          / logstash_node_pipeline_queue_events_count > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: logstash
+          category: pipeline
+        annotations:
+          summary: "Logstash queue experiencing backpressure"
+          description: "Pipeline {{ $labels.pipeline }} queue push duration is high, indicating backpressure."
+
+  # ==========================================================================
+  # LOGSTASH PERFORMANCE ALERTS
+  # ==========================================================================
+  - name: logstash_performance_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Processing Latency
+      # ------------------------------------------------------------------------
+      - alert: LogstashFilterLatencyHigh
+        expr: |
+          rate(logstash_node_pipeline_plugins_filters_events_duration_in_millis[5m])
+          / rate(logstash_node_pipeline_plugins_filters_events_out_total[5m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: logstash
+          category: performance
+        annotations:
+          summary: "Logstash filter latency is high"
+          description: "Filter {{ $labels.name }} average latency is {{ $value | printf \"%.2f\" }}ms."
+
+      - alert: LogstashOutputLatencyHigh
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_duration_in_millis[5m])
+          / rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m]) > 500
+        for: 10m
+        labels:
+          severity: warning
+          service: logstash
+          category: performance
+        annotations:
+          summary: "Logstash output latency is high"
+          description: "Output {{ $labels.name }} average latency is {{ $value | printf \"%.2f\" }}ms."
+
+      - alert: LogstashOutputLatencyCritical
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_duration_in_millis[5m])
+          / rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m]) > 2000
+        for: 5m
+        labels:
+          severity: critical
+          service: logstash
+          category: performance
+        annotations:
+          summary: "Logstash output latency is critical"
+          description: "Output {{ $labels.name }} average latency is {{ $value | printf \"%.2f\" }}ms. Check Elasticsearch health."
+
+      # ------------------------------------------------------------------------
+      # Throughput
+      # ------------------------------------------------------------------------
+      - alert: LogstashThroughputDrop
+        expr: |
+          rate(logstash_node_pipeline_events_out_total[5m])
+          < rate(logstash_node_pipeline_events_out_total[1h] offset 1h) * 0.5
+        for: 15m
+        labels:
+          severity: warning
+          service: logstash
+          category: performance
+        annotations:
+          summary: "Logstash throughput dropped significantly"
+          description: "Pipeline {{ $labels.pipeline }} throughput dropped by more than 50%."
+
+  # ==========================================================================
+  # LOGSTASH JVM ALERTS
+  # ==========================================================================
+  - name: logstash_jvm_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Heap Usage
+      # ------------------------------------------------------------------------
+      - alert: LogstashJvmHeapUsageWarning
+        expr: |
+          logstash_node_jvm_mem_heap_used_in_bytes
+          / logstash_node_jvm_mem_heap_max_in_bytes > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          service: logstash
+          category: jvm
+        annotations:
+          summary: "Logstash JVM heap usage is high"
+          description: "Logstash heap usage is {{ $value | humanizePercentage }}."
+
+      - alert: LogstashJvmHeapUsageCritical
+        expr: |
+          logstash_node_jvm_mem_heap_used_in_bytes
+          / logstash_node_jvm_mem_heap_max_in_bytes > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: logstash
+          category: jvm
+        annotations:
+          summary: "Logstash JVM heap usage is critical"
+          description: "Logstash heap usage is {{ $value | humanizePercentage }}. Risk of OOM!"
+
+      # ------------------------------------------------------------------------
+      # GC Pressure
+      # ------------------------------------------------------------------------
+      - alert: LogstashJvmGcPressureHigh
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_old_collection_time_in_millis[5m]) / 1000 > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          service: logstash
+          category: jvm
+        annotations:
+          summary: "Logstash JVM GC pressure is high"
+          description: "Logstash is spending {{ $value | humanizePercentage }} of time in old gen GC."
+
+      - alert: LogstashJvmGcFrequent
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_old_collection_count[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: logstash
+          category: jvm
+        annotations:
+          summary: "Logstash JVM GC is too frequent"
+          description: "Logstash is running {{ $value | printf \"%.2f\" }} old gen GC/s."
+
+  # ==========================================================================
+  # LOGSTASH DEAD LETTER QUEUE ALERTS
+  # ==========================================================================
+  - name: logstash_dlq_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # DLQ Growth
+      # ------------------------------------------------------------------------
+      - alert: LogstashDlqGrowing
+        expr: |
+          increase(logstash_node_dead_letter_queue_size_in_bytes[1h]) > 10000000
+        for: 0m
+        labels:
+          severity: warning
+          service: logstash
+          category: dlq
+        annotations:
+          summary: "Logstash dead letter queue is growing"
+          description: "DLQ grew by {{ $value | humanize1024 }}B in the last hour."
+
+      - alert: LogstashDlqSizeHigh
+        expr: |
+          logstash_node_dead_letter_queue_size_in_bytes > 100000000
+        for: 5m
+        labels:
+          severity: warning
+          service: logstash
+          category: dlq
+        annotations:
+          summary: "Logstash dead letter queue size is high"
+          description: "DLQ size is {{ $value | humanize1024 }}B. Review failed events."
+
+      - alert: LogstashDlqSizeCritical
+        expr: |
+          logstash_node_dead_letter_queue_size_in_bytes > 500000000
+        for: 5m
+        labels:
+          severity: critical
+          service: logstash
+          category: dlq
+        annotations:
+          summary: "Logstash dead letter queue size is critical"
+          description: "DLQ size is {{ $value | humanize1024 }}B. Many events are failing!"
+
+  # ==========================================================================
+  # LOGSTASH PLUGIN ALERTS
+  # ==========================================================================
+  - name: logstash_plugin_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Input Plugin Issues
+      # ------------------------------------------------------------------------
+      - alert: LogstashKafkaInputErrors
+        expr: |
+          increase(logstash_node_pipeline_plugins_inputs_events_error_total{name=~".*kafka.*"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: logstash
+          category: plugin
+        annotations:
+          summary: "Logstash Kafka input errors"
+          description: "Kafka input {{ $labels.name }} had {{ $value }} errors in the last 5 minutes."
+
+      # ------------------------------------------------------------------------
+      # Output Plugin Issues
+      # ------------------------------------------------------------------------
+      - alert: LogstashElasticsearchOutputErrors
+        expr: |
+          increase(logstash_node_pipeline_plugins_outputs_events_error_total{name=~".*elasticsearch.*"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: logstash
+          category: plugin
+        annotations:
+          summary: "Logstash Elasticsearch output errors"
+          description: "Elasticsearch output {{ $labels.name }} had {{ $value }} errors in the last 5 minutes."
+
+      - alert: LogstashOutputBulkRejections
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_documents_successes_total[5m])
+          / rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m]) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          service: logstash
+          category: plugin
+        annotations:
+          summary: "Logstash Elasticsearch bulk rejections"
+          description: "Output {{ $labels.name }} success rate is {{ $value | humanizePercentage }}."

@@ -1,0 +1,425 @@
+# ============================================================================
+# PROMETHEUS ALERT RULES - KAFKA
+# ============================================================================
+# Regles d'alertes pour le monitoring du cluster Kafka
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # KAFKA CLUSTER ALERTS
+  # ==========================================================================
+  - name: kafka_cluster_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Broker Availability
+      # ------------------------------------------------------------------------
+      - alert: KafkaBrokerDown
+        expr: |
+          count(up{job="kafka-jmx"} == 1) < 3
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+          category: cluster
+        annotations:
+          summary: "Kafka broker is down"
+          description: "Only {{ $value }} of 3 expected Kafka brokers are available."
+          runbook_url: "https://wiki.example.com/kafka/broker-down"
+          dashboard_url: "http://grafana:3000/d/kafka-overview"
+
+      - alert: KafkaBrokerNotAvailable
+        expr: |
+          up{job="kafka-jmx"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+          category: cluster
+        annotations:
+          summary: "Kafka broker {{ $labels.broker }} is not available"
+          description: "Broker {{ $labels.broker }} is not responding to JMX metrics."
+
+      # ------------------------------------------------------------------------
+      # Controller
+      # ------------------------------------------------------------------------
+      - alert: KafkaNoActiveController
+        expr: |
+          sum(kafka_controller_active_controller_count) == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+          category: controller
+        annotations:
+          summary: "No active Kafka controller"
+          description: "There is no active controller in the Kafka cluster. This is a critical issue."
+
+      - alert: KafkaMultipleControllers
+        expr: |
+          sum(kafka_controller_active_controller_count) > 1
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+          category: controller
+        annotations:
+          summary: "Multiple Kafka controllers detected"
+          description: "{{ $value }} controllers are active. There should only be one."
+
+      # ------------------------------------------------------------------------
+      # Offline Partitions
+      # ------------------------------------------------------------------------
+      - alert: KafkaOfflinePartitions
+        expr: |
+          sum(kafka_controller_offline_partitions_count) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: kafka
+          category: partitions
+        annotations:
+          summary: "Kafka has offline partitions"
+          description: "{{ $value }} partitions are offline. Data is unavailable!"
+
+      # ------------------------------------------------------------------------
+      # Under Replicated Partitions
+      # ------------------------------------------------------------------------
+      - alert: KafkaUnderReplicatedPartitions
+        expr: |
+          sum(kafka_server_replica_manager_under_replicated_partitions) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: replication
+        annotations:
+          summary: "Kafka has under-replicated partitions"
+          description: "{{ $value }} partitions are under-replicated. Data durability is at risk."
+
+      - alert: KafkaUnderReplicatedPartitionsCritical
+        expr: |
+          sum(kafka_server_replica_manager_under_replicated_partitions) > 10
+        for: 2m
+        labels:
+          severity: critical
+          service: kafka
+          category: replication
+        annotations:
+          summary: "Kafka has many under-replicated partitions"
+          description: "{{ $value }} partitions are under-replicated. Immediate action required!"
+
+      # ------------------------------------------------------------------------
+      # Under Min ISR Partitions
+      # ------------------------------------------------------------------------
+      - alert: KafkaUnderMinIsrPartitions
+        expr: |
+          sum(kafka_server_replica_manager_under_min_isr_partition_count) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: kafka
+          category: replication
+        annotations:
+          summary: "Kafka partitions under min.insync.replicas"
+          description: "{{ $value }} partitions have fewer replicas than min.insync.replicas. Writes may fail!"
+
+      # ------------------------------------------------------------------------
+      # ISR Shrinks
+      # ------------------------------------------------------------------------
+      - alert: KafkaIsrShrinking
+        expr: |
+          rate(kafka_server_replica_manager_isr_shrinks_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: kafka
+          category: replication
+        annotations:
+          summary: "Kafka ISR is shrinking"
+          description: "In-Sync Replicas are shrinking on broker {{ $labels.broker }}. Check broker health."
+
+  # ==========================================================================
+  # KAFKA CONSUMER ALERTS
+  # ==========================================================================
+  - name: kafka_consumer_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Consumer Lag
+      # ------------------------------------------------------------------------
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: consumer
+        annotations:
+          summary: "Kafka consumer lag is high"
+          description: "Consumer group {{ $labels.consumergroup }} has a lag of {{ $value }} on topic {{ $labels.topic }}."
+
+      - alert: KafkaConsumerLagCritical
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 2m
+        labels:
+          severity: critical
+          service: kafka
+          category: consumer
+        annotations:
+          summary: "Kafka consumer lag is critical"
+          description: "Consumer group {{ $labels.consumergroup }} has a lag of {{ $value }} on topic {{ $labels.topic }}. Processing is severely behind!"
+
+      - alert: KafkaConsumerLagGrowing
+        expr: |
+          delta(kafka_consumergroup_lag[10m]) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: kafka
+          category: consumer
+        annotations:
+          summary: "Kafka consumer lag is growing"
+          description: "Consumer group {{ $labels.consumergroup }} lag is increasing on topic {{ $labels.topic }}."
+
+      # ------------------------------------------------------------------------
+      # Consumer Group State
+      # ------------------------------------------------------------------------
+      - alert: KafkaConsumerGroupEmpty
+        expr: |
+          kafka_consumergroup_members == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: consumer
+        annotations:
+          summary: "Kafka consumer group has no members"
+          description: "Consumer group {{ $labels.consumergroup }} has no active members."
+
+  # ==========================================================================
+  # KAFKA TOPIC ALERTS
+  # ==========================================================================
+  - name: kafka_topic_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Topic Partition Count
+      # ------------------------------------------------------------------------
+      - alert: KafkaTopicPartitionCountChanged
+        expr: |
+          changes(kafka_topic_partitions[1h]) > 0
+        for: 1m
+        labels:
+          severity: info
+          service: kafka
+          category: topic
+        annotations:
+          summary: "Kafka topic partition count changed"
+          description: "Topic {{ $labels.topic }} partition count changed. New count: {{ $value }}."
+
+      # ------------------------------------------------------------------------
+      # No Messages
+      # ------------------------------------------------------------------------
+      - alert: KafkaTopicNoMessages
+        expr: |
+          rate(kafka_server_broker_topic_metrics_messages_in_total[5m]) == 0
+          and
+          rate(kafka_server_broker_topic_metrics_messages_in_total[1h] offset 1h) > 10
+        for: 30m
+        labels:
+          severity: warning
+          service: kafka
+          category: topic
+        annotations:
+          summary: "Kafka topic receiving no messages"
+          description: "Topic {{ $labels.topic }} has not received messages in 30 minutes (was active before)."
+
+  # ==========================================================================
+  # KAFKA PERFORMANCE ALERTS
+  # ==========================================================================
+  - name: kafka_performance_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Request Latency
+      # ------------------------------------------------------------------------
+      - alert: KafkaProduceRequestLatencyHigh
+        expr: |
+          kafka_network_request_total_time_ms{request="Produce",quantile="0.99"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka produce request latency is high"
+          description: "P99 produce latency on broker {{ $labels.broker }} is {{ $value }}ms."
+
+      - alert: KafkaFetchRequestLatencyHigh
+        expr: |
+          kafka_network_request_total_time_ms{request="Fetch",quantile="0.99"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka fetch request latency is high"
+          description: "P99 fetch latency on broker {{ $labels.broker }} is {{ $value }}ms."
+
+      # ------------------------------------------------------------------------
+      # Failed Requests
+      # ------------------------------------------------------------------------
+      - alert: KafkaFailedProduceRequests
+        expr: |
+          rate(kafka_server_broker_topic_metrics_failed_produce_requests_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka has failed produce requests"
+          description: "Broker {{ $labels.broker }} has {{ $value | printf \"%.2f\" }} failed produce requests/s."
+
+      - alert: KafkaFailedFetchRequests
+        expr: |
+          rate(kafka_server_broker_topic_metrics_failed_fetch_requests_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka has failed fetch requests"
+          description: "Broker {{ $labels.broker }} has {{ $value | printf \"%.2f\" }} failed fetch requests/s."
+
+      # ------------------------------------------------------------------------
+      # Network Processor Idle
+      # ------------------------------------------------------------------------
+      - alert: KafkaNetworkProcessorIdleLow
+        expr: |
+          kafka_network_socket_server_network_processor_avg_idle_percent < 0.3
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka network processor idle is low"
+          description: "Network processor idle on broker {{ $labels.broker }} is {{ $value | humanizePercentage }}."
+
+      - alert: KafkaRequestHandlerIdleLow
+        expr: |
+          kafka_server_request_handler_avg_idle_percent < 0.3
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: performance
+        annotations:
+          summary: "Kafka request handler idle is low"
+          description: "Request handler idle on broker {{ $labels.broker }} is {{ $value | humanizePercentage }}."
+
+  # ==========================================================================
+  # KAFKA JVM ALERTS
+  # ==========================================================================
+  - name: kafka_jvm_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Heap Usage
+      # ------------------------------------------------------------------------
+      - alert: KafkaJvmHeapUsageWarning
+        expr: |
+          jvm_memory_heap_used_bytes / jvm_memory_heap_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: jvm
+        annotations:
+          summary: "Kafka JVM heap usage is high"
+          description: "Broker {{ $labels.broker }} heap usage is {{ $value | humanizePercentage }}."
+
+      - alert: KafkaJvmHeapUsageCritical
+        expr: |
+          jvm_memory_heap_used_bytes / jvm_memory_heap_max_bytes > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          service: kafka
+          category: jvm
+        annotations:
+          summary: "Kafka JVM heap usage is critical"
+          description: "Broker {{ $labels.broker }} heap usage is {{ $value | humanizePercentage }}. Risk of OOM!"
+
+      # ------------------------------------------------------------------------
+      # GC Time
+      # ------------------------------------------------------------------------
+      - alert: KafkaJvmGcTimeHigh
+        expr: |
+          rate(jvm_gc_collection_time_ms[5m]) / 1000 > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          service: kafka
+          category: jvm
+        annotations:
+          summary: "Kafka JVM GC time is high"
+          description: "Broker {{ $labels.broker }} is spending {{ $value | humanizePercentage }} of time in GC."
+
+      # ------------------------------------------------------------------------
+      # File Descriptors
+      # ------------------------------------------------------------------------
+      - alert: KafkaFileDescriptorsHigh
+        expr: |
+          jvm_os_open_file_descriptor_count / jvm_os_max_file_descriptor_count > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: kafka
+          category: jvm
+        annotations:
+          summary: "Kafka file descriptors usage is high"
+          description: "Broker {{ $labels.broker }} is using {{ $value | humanizePercentage }} of available file descriptors."
+
+  # ==========================================================================
+  # ZOOKEEPER ALERTS
+  # ==========================================================================
+  - name: zookeeper_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # ZooKeeper Availability
+      # ------------------------------------------------------------------------
+      - alert: ZookeeperDown
+        expr: |
+          probe_success{job="blackbox-zookeeper"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: zookeeper
+          category: availability
+        annotations:
+          summary: "ZooKeeper is down"
+          description: "ZooKeeper instance at {{ $labels.instance }} is not responding."
+
+      # ------------------------------------------------------------------------
+      # Session Expiry (if ZK JMX metrics available)
+      # ------------------------------------------------------------------------
+      - alert: KafkaZookeeperSessionExpired
+        expr: |
+          increase(kafka_server_zookeeper_session_state[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: kafka
+          category: zookeeper
+        annotations:
+          summary: "Kafka ZooKeeper session expired"
+          description: "Broker {{ $labels.broker }} had a ZooKeeper session state change."
