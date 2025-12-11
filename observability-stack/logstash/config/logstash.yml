@@ -1,0 +1,76 @@
+# ============================================================================
+# LOGSTASH CONFIGURATION
+# ============================================================================
+# Documentation: https://www.elastic.co/guide/en/logstash/current/logstash-settings-file.html
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# NODE SETTINGS
+# ----------------------------------------------------------------------------
+node.name: "logstash-01"
+
+# ----------------------------------------------------------------------------
+# PATH SETTINGS
+# ----------------------------------------------------------------------------
+path.data: /usr/share/logstash/data
+path.logs: /usr/share/logstash/logs
+path.config: /usr/share/logstash/pipeline
+
+# ----------------------------------------------------------------------------
+# PIPELINE SETTINGS
+# ----------------------------------------------------------------------------
+pipeline.ordered: auto
+pipeline.workers: 2
+pipeline.batch.size: 125
+pipeline.batch.delay: 50
+pipeline.ecs_compatibility: v8
+
+# ----------------------------------------------------------------------------
+# MONITORING SETTINGS
+# ----------------------------------------------------------------------------
+# Expose metrics on HTTP
+http.host: "0.0.0.0"
+http.port: 9600
+
+# Enable API monitoring
+api.enabled: true
+api.http.host: "0.0.0.0"
+api.http.port: 9600
+api.environment: "production"
+
+# Internal metrics collection
+monitoring.enabled: false
+
+# ----------------------------------------------------------------------------
+# QUEUE SETTINGS
+# ----------------------------------------------------------------------------
+queue.type: memory
+queue.max_bytes: 1gb
+queue.checkpoint.writes: 1024
+queue.checkpoint.interval: 1000
+
+# ----------------------------------------------------------------------------
+# DEAD LETTER QUEUE
+# ----------------------------------------------------------------------------
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 1gb
+dead_letter_queue.retain.age: 7d
+
+# ----------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------
+log.level: info
+log.format: json
+slowlog.threshold.warn: 2s
+slowlog.threshold.info: 1s
+slowlog.threshold.debug: 500ms
+slowlog.threshold.trace: 100ms
+
+# ----------------------------------------------------------------------------
+# X-PACK MONITORING (Optional - if using Elastic Stack monitoring)
+# ----------------------------------------------------------------------------
+# xpack.monitoring.enabled: true
+# xpack.monitoring.elasticsearch.hosts: ["https://es01:9200"]
+# xpack.monitoring.elasticsearch.username: "logstash_system"
+# xpack.monitoring.elasticsearch.password: "${LOGSTASH_SYSTEM_PASSWORD}"
+# xpack.monitoring.elasticsearch.ssl.certificate_authority: "/usr/share/logstash/config/certs/ca/ca.crt"

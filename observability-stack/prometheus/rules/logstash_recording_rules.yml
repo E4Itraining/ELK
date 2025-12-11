@@ -1,0 +1,325 @@
+# ============================================================================
+# PROMETHEUS RECORDING RULES - LOGSTASH
+# ============================================================================
+# Pre-calcul des metriques Logstash pour optimiser les requetes
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # LOGSTASH AVAILABILITY METRICS
+  # ==========================================================================
+  - name: logstash_availability_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Availability
+      # ------------------------------------------------------------------------
+      - record: logstash:availability:up
+        expr: |
+          probe_success{job="blackbox-logstash"}
+
+      - record: logstash:availability:probe_duration_seconds
+        expr: |
+          probe_duration_seconds{job="blackbox-logstash"}
+
+  # ==========================================================================
+  # LOGSTASH PIPELINE METRICS
+  # ==========================================================================
+  - name: logstash_pipeline_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Events
+      # ------------------------------------------------------------------------
+      - record: logstash:pipeline:events_in_total
+        expr: |
+          logstash_node_pipeline_events_in_total
+
+      - record: logstash:pipeline:events_out_total
+        expr: |
+          logstash_node_pipeline_events_out_total
+
+      - record: logstash:pipeline:events_filtered_total
+        expr: |
+          logstash_node_pipeline_events_filtered_total
+
+      # ------------------------------------------------------------------------
+      # Event Rates
+      # ------------------------------------------------------------------------
+      - record: logstash:pipeline:events_in_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_events_in_total[5m])
+
+      - record: logstash:pipeline:events_out_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_events_out_total[5m])
+
+      - record: logstash:pipeline:events_filtered_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_events_filtered_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Processing Rate (events per second)
+      # ------------------------------------------------------------------------
+      - record: logstash:pipeline:throughput_eps
+        expr: |
+          irate(logstash_node_pipeline_events_out_total[1m])
+
+      - record: logstash:pipeline:throughput_eps:5m_avg
+        expr: |
+          rate(logstash_node_pipeline_events_out_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Filter Rate
+      # ------------------------------------------------------------------------
+      - record: logstash:pipeline:filter_ratio
+        expr: |
+          rate(logstash_node_pipeline_events_filtered_total[5m])
+          / rate(logstash_node_pipeline_events_in_total[5m])
+
+  # ==========================================================================
+  # LOGSTASH LATENCY METRICS
+  # ==========================================================================
+  - name: logstash_latency_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Queue Duration
+      # ------------------------------------------------------------------------
+      - record: logstash:latency:queue_push_duration_ms
+        expr: |
+          logstash_node_pipeline_queue_push_duration_in_millis
+
+      - record: logstash:latency:queue_push_duration_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_queue_push_duration_in_millis[5m])
+
+      # ------------------------------------------------------------------------
+      # Filter Duration
+      # ------------------------------------------------------------------------
+      - record: logstash:latency:filter_duration_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_filters_events_duration_in_millis[5m])
+
+      - record: logstash:latency:filter_avg_ms
+        expr: |
+          rate(logstash_node_pipeline_plugins_filters_events_duration_in_millis[5m])
+          / rate(logstash_node_pipeline_plugins_filters_events_out_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Output Duration
+      # ------------------------------------------------------------------------
+      - record: logstash:latency:output_duration_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_duration_in_millis[5m])
+
+      - record: logstash:latency:output_avg_ms
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_duration_in_millis[5m])
+          / rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m])
+
+  # ==========================================================================
+  # LOGSTASH QUEUE METRICS
+  # ==========================================================================
+  - name: logstash_queue_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Queue Size
+      # ------------------------------------------------------------------------
+      - record: logstash:queue:events_count
+        expr: |
+          logstash_node_pipeline_queue_events_count
+
+      - record: logstash:queue:size_bytes
+        expr: |
+          logstash_node_pipeline_queue_size_in_bytes
+
+      - record: logstash:queue:max_size_bytes
+        expr: |
+          logstash_node_pipeline_queue_max_size_in_bytes
+
+      - record: logstash:queue:usage_ratio
+        expr: |
+          logstash_node_pipeline_queue_size_in_bytes
+          / logstash_node_pipeline_queue_max_size_in_bytes
+
+  # ==========================================================================
+  # LOGSTASH JVM METRICS
+  # ==========================================================================
+  - name: logstash_jvm_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Heap Usage
+      # ------------------------------------------------------------------------
+      - record: logstash:jvm:heap_used_bytes
+        expr: |
+          logstash_node_jvm_mem_heap_used_in_bytes
+
+      - record: logstash:jvm:heap_max_bytes
+        expr: |
+          logstash_node_jvm_mem_heap_max_in_bytes
+
+      - record: logstash:jvm:heap_usage_ratio
+        expr: |
+          logstash_node_jvm_mem_heap_used_in_bytes
+          / logstash_node_jvm_mem_heap_max_in_bytes
+
+      - record: logstash:jvm:heap_committed_bytes
+        expr: |
+          logstash_node_jvm_mem_heap_committed_in_bytes
+
+      # ------------------------------------------------------------------------
+      # Non-Heap Memory
+      # ------------------------------------------------------------------------
+      - record: logstash:jvm:non_heap_used_bytes
+        expr: |
+          logstash_node_jvm_mem_non_heap_used_in_bytes
+
+      # ------------------------------------------------------------------------
+      # GC Metrics
+      # ------------------------------------------------------------------------
+      - record: logstash:jvm:gc_old_time_rate:5m
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_old_collection_time_in_millis[5m]) / 1000
+
+      - record: logstash:jvm:gc_old_count_rate:5m
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_old_collection_count[5m])
+
+      - record: logstash:jvm:gc_young_time_rate:5m
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_young_collection_time_in_millis[5m]) / 1000
+
+      - record: logstash:jvm:gc_young_count_rate:5m
+        expr: |
+          rate(logstash_node_jvm_gc_collectors_young_collection_count[5m])
+
+      # ------------------------------------------------------------------------
+      # Threads
+      # ------------------------------------------------------------------------
+      - record: logstash:jvm:threads_count
+        expr: |
+          logstash_node_jvm_threads_count
+
+      - record: logstash:jvm:threads_peak_count
+        expr: |
+          logstash_node_jvm_threads_peak_count
+
+  # ==========================================================================
+  # LOGSTASH PLUGIN METRICS
+  # ==========================================================================
+  - name: logstash_plugin_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Input Plugins
+      # ------------------------------------------------------------------------
+      - record: logstash:plugin:input_events_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_inputs_events_out_total[5m])
+
+      - record: logstash:plugin:input_queue_push_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_inputs_events_queue_push_duration_in_millis[5m])
+
+      # ------------------------------------------------------------------------
+      # Filter Plugins
+      # ------------------------------------------------------------------------
+      - record: logstash:plugin:filter_events_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_filters_events_out_total[5m])
+
+      - record: logstash:plugin:filter_duration_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_filters_events_duration_in_millis[5m])
+
+      # ------------------------------------------------------------------------
+      # Output Plugins
+      # ------------------------------------------------------------------------
+      - record: logstash:plugin:output_events_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m])
+
+      - record: logstash:plugin:output_duration_rate:5m
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_events_duration_in_millis[5m])
+
+      - record: logstash:plugin:output_success_rate
+        expr: |
+          rate(logstash_node_pipeline_plugins_outputs_documents_successes_total[5m])
+          / rate(logstash_node_pipeline_plugins_outputs_events_out_total[5m])
+
+  # ==========================================================================
+  # LOGSTASH DEAD LETTER QUEUE METRICS
+  # ==========================================================================
+  - name: logstash_dlq_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # DLQ Size
+      # ------------------------------------------------------------------------
+      - record: logstash:dlq:size_bytes
+        expr: |
+          logstash_node_dead_letter_queue_size_in_bytes
+
+      - record: logstash:dlq:max_size_bytes
+        expr: |
+          logstash_node_dead_letter_queue_max_size_in_bytes
+
+      - record: logstash:dlq:usage_ratio
+        expr: |
+          logstash_node_dead_letter_queue_size_in_bytes
+          / logstash_node_dead_letter_queue_max_size_in_bytes
+
+      - record: logstash:dlq:growth_rate:1h
+        expr: |
+          increase(logstash_node_dead_letter_queue_size_in_bytes[1h])
+
+  # ==========================================================================
+  # LOGSTASH SLO METRICS
+  # ==========================================================================
+  - name: logstash_slo_recording_rules
+    interval: 1m
+    rules:
+      # ------------------------------------------------------------------------
+      # Availability SLO (99.9%)
+      # ------------------------------------------------------------------------
+      - record: slo:logstash:availability:target
+        expr: 0.999
+
+      - record: slo:logstash:availability:current
+        expr: |
+          avg_over_time(logstash:availability:up[1h])
+
+      - record: slo:logstash:availability:budget_consumed
+        expr: |
+          (1 - slo:logstash:availability:current) / (1 - slo:logstash:availability:target)
+
+      - record: slo:logstash:availability:budget_remaining
+        expr: |
+          1 - slo:logstash:availability:budget_consumed
+
+      # ------------------------------------------------------------------------
+      # Throughput SLO
+      # ------------------------------------------------------------------------
+      - record: slo:logstash:throughput:events_per_second
+        expr: |
+          logstash:pipeline:throughput_eps:5m_avg
+
+      # ------------------------------------------------------------------------
+      # Latency SLO (Output < 500ms)
+      # ------------------------------------------------------------------------
+      - record: slo:logstash:latency:target_ms
+        expr: 500
+
+      - record: slo:logstash:latency:output_current
+        expr: |
+          logstash:latency:output_avg_ms
+
+      - record: slo:logstash:latency:within_target
+        expr: |
+          (logstash:latency:output_avg_ms < slo:logstash:latency:target_ms)
+          or vector(0)

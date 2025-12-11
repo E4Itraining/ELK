@@ -1,0 +1,380 @@
+# ============================================================================
+# PROMETHEUS RECORDING RULES - KAFKA
+# ============================================================================
+# Pre-calcul des metriques Kafka pour optimiser les requetes
+# Documentation: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # KAFKA CLUSTER METRICS
+  # ==========================================================================
+  - name: kafka_cluster_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Broker Status
+      # ------------------------------------------------------------------------
+      - record: kafka:cluster:broker_count
+        expr: |
+          count(up{job="kafka-jmx"} == 1)
+
+      - record: kafka:cluster:broker_up
+        expr: |
+          up{job="kafka-jmx"}
+
+      - record: kafka:cluster:active_controller_count
+        expr: |
+          sum(kafka_controller_active_controller_count)
+
+      - record: kafka:cluster:is_healthy
+        expr: |
+          (count(up{job="kafka-jmx"} == 1) == 3)
+          and
+          (sum(kafka_controller_active_controller_count) == 1)
+          and
+          (sum(kafka_controller_offline_partitions_count) == 0)
+
+      # ------------------------------------------------------------------------
+      # Partition Metrics
+      # ------------------------------------------------------------------------
+      - record: kafka:cluster:offline_partitions
+        expr: |
+          sum(kafka_controller_offline_partitions_count)
+
+      - record: kafka:cluster:under_replicated_partitions
+        expr: |
+          sum(kafka_server_replica_manager_under_replicated_partitions)
+
+      - record: kafka:cluster:under_min_isr_partitions
+        expr: |
+          sum(kafka_server_replica_manager_under_min_isr_partition_count)
+
+      - record: kafka:cluster:partition_count
+        expr: |
+          sum(kafka_server_replica_manager_partition_count)
+
+      - record: kafka:cluster:leader_count
+        expr: |
+          sum(kafka_server_replica_manager_leader_count)
+
+      # ------------------------------------------------------------------------
+      # ISR Metrics
+      # ------------------------------------------------------------------------
+      - record: kafka:replication:isr_shrinks_rate:5m
+        expr: |
+          sum(rate(kafka_server_replica_manager_isr_shrinks_total[5m]))
+
+      - record: kafka:replication:isr_expands_rate:5m
+        expr: |
+          sum(rate(kafka_server_replica_manager_isr_expands_total[5m]))
+
+  # ==========================================================================
+  # KAFKA THROUGHPUT METRICS
+  # ==========================================================================
+  - name: kafka_throughput_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Messages
+      # ------------------------------------------------------------------------
+      - record: kafka:throughput:messages_in_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_messages_in_total_all[5m]))
+
+      - record: kafka:throughput:messages_in_rate:5m:by_broker
+        expr: |
+          rate(kafka_server_broker_topic_metrics_messages_in_total_all[5m])
+
+      - record: kafka:throughput:messages_in_rate:5m:by_topic
+        expr: |
+          sum by (topic) (rate(kafka_server_broker_topic_metrics_messages_in_total[5m]))
+
+      # ------------------------------------------------------------------------
+      # Bytes
+      # ------------------------------------------------------------------------
+      - record: kafka:throughput:bytes_in_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_bytes_in_total_all[5m]))
+
+      - record: kafka:throughput:bytes_out_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_bytes_out_total_all[5m]))
+
+      - record: kafka:throughput:bytes_in_rate:5m:by_broker
+        expr: |
+          rate(kafka_server_broker_topic_metrics_bytes_in_total_all[5m])
+
+      - record: kafka:throughput:bytes_out_rate:5m:by_broker
+        expr: |
+          rate(kafka_server_broker_topic_metrics_bytes_out_total_all[5m])
+
+      - record: kafka:throughput:bytes_in_rate:5m:by_topic
+        expr: |
+          sum by (topic) (rate(kafka_server_broker_topic_metrics_bytes_in_total[5m]))
+
+      - record: kafka:throughput:bytes_out_rate:5m:by_topic
+        expr: |
+          sum by (topic) (rate(kafka_server_broker_topic_metrics_bytes_out_total[5m]))
+
+      # ------------------------------------------------------------------------
+      # Failed Requests
+      # ------------------------------------------------------------------------
+      - record: kafka:throughput:failed_produce_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_failed_produce_requests_total[5m]))
+
+      - record: kafka:throughput:failed_fetch_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_failed_fetch_requests_total[5m]))
+
+      - record: kafka:throughput:bytes_rejected_rate:5m
+        expr: |
+          sum(rate(kafka_server_broker_topic_metrics_bytes_rejected_total[5m]))
+
+  # ==========================================================================
+  # KAFKA REQUEST METRICS
+  # ==========================================================================
+  - name: kafka_request_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Request Rates
+      # ------------------------------------------------------------------------
+      - record: kafka:request:produce_rate:5m
+        expr: |
+          sum(rate(kafka_network_request_metrics_requests_total{request="Produce"}[5m]))
+
+      - record: kafka:request:fetch_rate:5m
+        expr: |
+          sum(rate(kafka_network_request_metrics_requests_total{request="Fetch"}[5m]))
+
+      - record: kafka:request:fetch_consumer_rate:5m
+        expr: |
+          sum(rate(kafka_network_request_metrics_requests_total{request="FetchConsumer"}[5m]))
+
+      - record: kafka:request:fetch_follower_rate:5m
+        expr: |
+          sum(rate(kafka_network_request_metrics_requests_total{request="FetchFollower"}[5m]))
+
+      # ------------------------------------------------------------------------
+      # Request Latency
+      # ------------------------------------------------------------------------
+      - record: kafka:request:produce_total_time_p99
+        expr: |
+          avg(kafka_network_request_total_time_ms{request="Produce",quantile="0.99"})
+
+      - record: kafka:request:fetch_total_time_p99
+        expr: |
+          avg(kafka_network_request_total_time_ms{request="Fetch",quantile="0.99"})
+
+      - record: kafka:request:produce_queue_time_p99
+        expr: |
+          avg(kafka_network_request_queue_time_ms{request="Produce",quantile="0.99"})
+
+      - record: kafka:request:fetch_queue_time_p99
+        expr: |
+          avg(kafka_network_request_queue_time_ms{request="Fetch",quantile="0.99"})
+
+  # ==========================================================================
+  # KAFKA CONSUMER METRICS
+  # ==========================================================================
+  - name: kafka_consumer_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Consumer Lag
+      # ------------------------------------------------------------------------
+      - record: kafka:consumer:lag_total
+        expr: |
+          sum(kafka_consumergroup_lag)
+
+      - record: kafka:consumer:lag_by_group
+        expr: |
+          sum by (consumergroup) (kafka_consumergroup_lag)
+
+      - record: kafka:consumer:lag_by_topic
+        expr: |
+          sum by (topic) (kafka_consumergroup_lag)
+
+      - record: kafka:consumer:lag_by_group_topic
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag)
+
+      # ------------------------------------------------------------------------
+      # Consumer Group Members
+      # ------------------------------------------------------------------------
+      - record: kafka:consumer:group_count
+        expr: |
+          count(count by (consumergroup) (kafka_consumergroup_members))
+
+      - record: kafka:consumer:members_by_group
+        expr: |
+          kafka_consumergroup_members
+
+      # ------------------------------------------------------------------------
+      # Consumer Current Offset
+      # ------------------------------------------------------------------------
+      - record: kafka:consumer:current_offset_rate:5m
+        expr: |
+          sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset[5m]))
+
+  # ==========================================================================
+  # KAFKA JVM METRICS
+  # ==========================================================================
+  - name: kafka_jvm_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Heap Usage
+      # ------------------------------------------------------------------------
+      - record: kafka:jvm:heap_usage_ratio
+        expr: |
+          jvm_memory_heap_used_bytes / jvm_memory_heap_max_bytes
+
+      - record: kafka:jvm:heap_usage_ratio:by_broker
+        expr: |
+          jvm_memory_heap_used_bytes / jvm_memory_heap_max_bytes
+
+      - record: kafka:jvm:heap_used_bytes
+        expr: |
+          jvm_memory_heap_used_bytes
+
+      - record: kafka:jvm:heap_max_bytes
+        expr: |
+          jvm_memory_heap_max_bytes
+
+      # ------------------------------------------------------------------------
+      # GC Metrics
+      # ------------------------------------------------------------------------
+      - record: kafka:jvm:gc_time_rate:5m
+        expr: |
+          rate(jvm_gc_collection_time_ms[5m]) / 1000
+
+      - record: kafka:jvm:gc_count_rate:5m
+        expr: |
+          rate(jvm_gc_collection_count[5m])
+
+      # ------------------------------------------------------------------------
+      # Threads
+      # ------------------------------------------------------------------------
+      - record: kafka:jvm:thread_count
+        expr: |
+          jvm_threads_current
+
+      # ------------------------------------------------------------------------
+      # File Descriptors
+      # ------------------------------------------------------------------------
+      - record: kafka:jvm:fd_usage_ratio
+        expr: |
+          jvm_os_open_file_descriptor_count / jvm_os_max_file_descriptor_count
+
+  # ==========================================================================
+  # KAFKA PERFORMANCE METRICS
+  # ==========================================================================
+  - name: kafka_performance_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Network Processor
+      # ------------------------------------------------------------------------
+      - record: kafka:performance:network_processor_idle
+        expr: |
+          kafka_network_socket_server_network_processor_avg_idle_percent
+
+      - record: kafka:performance:request_handler_idle
+        expr: |
+          kafka_server_request_handler_avg_idle_percent
+
+      # ------------------------------------------------------------------------
+      # Purgatory
+      # ------------------------------------------------------------------------
+      - record: kafka:performance:purgatory_size:produce
+        expr: |
+          kafka_server_delayed_operation_purgatory_size{operation="Produce"}
+
+      - record: kafka:performance:purgatory_size:fetch
+        expr: |
+          kafka_server_delayed_operation_purgatory_size{operation="Fetch"}
+
+  # ==========================================================================
+  # KAFKA TOPIC METRICS
+  # ==========================================================================
+  - name: kafka_topic_recording_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Topic Count
+      # ------------------------------------------------------------------------
+      - record: kafka:topic:count
+        expr: |
+          count(count by (topic) (kafka_topic_partitions))
+
+      - record: kafka:topic:partition_count
+        expr: |
+          kafka_topic_partitions
+
+      # ------------------------------------------------------------------------
+      # Topic Size (from log metrics)
+      # ------------------------------------------------------------------------
+      - record: kafka:topic:size_bytes
+        expr: |
+          sum by (topic) (kafka_log_size_bytes)
+
+      - record: kafka:topic:log_end_offset
+        expr: |
+          sum by (topic) (kafka_log_end_offset)
+
+  # ==========================================================================
+  # KAFKA SLO METRICS
+  # ==========================================================================
+  - name: kafka_slo_recording_rules
+    interval: 1m
+    rules:
+      # ------------------------------------------------------------------------
+      # Availability SLO (99.9%)
+      # ------------------------------------------------------------------------
+      - record: slo:kafka:availability:target
+        expr: 0.999
+
+      - record: slo:kafka:availability:current
+        expr: |
+          avg_over_time(kafka:cluster:is_healthy[1h])
+
+      - record: slo:kafka:availability:budget_consumed
+        expr: |
+          (1 - slo:kafka:availability:current) / (1 - slo:kafka:availability:target)
+
+      - record: slo:kafka:availability:budget_remaining
+        expr: |
+          1 - slo:kafka:availability:budget_consumed
+
+      # ------------------------------------------------------------------------
+      # Produce Latency SLO (P99 < 100ms)
+      # ------------------------------------------------------------------------
+      - record: slo:kafka:produce_latency:target_ms
+        expr: 100
+
+      - record: slo:kafka:produce_latency:current_p99
+        expr: |
+          kafka:request:produce_total_time_p99
+
+      - record: slo:kafka:produce_latency:within_target
+        expr: |
+          (kafka:request:produce_total_time_p99 < slo:kafka:produce_latency:target_ms)
+          or vector(0)
+
+      # ------------------------------------------------------------------------
+      # Consumer Lag SLO (< 1000 messages)
+      # ------------------------------------------------------------------------
+      - record: slo:kafka:consumer_lag:target
+        expr: 1000
+
+      - record: slo:kafka:consumer_lag:max
+        expr: |
+          max(kafka:consumer:lag_by_group_topic)
+
+      - record: slo:kafka:consumer_lag:within_target
+        expr: |
+          (slo:kafka:consumer_lag:max < slo:kafka:consumer_lag:target)
+          or vector(0)
