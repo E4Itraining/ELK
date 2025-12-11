@@ -412,17 +412,14 @@ services:
       - "observability.kafka.broker_id=1"
 
   kafka02:
-    build:
-      context: ./kafka
-      dockerfile: Dockerfile
-      args:
-        KAFKA_VERSION: ${KAFKA_VERSION:-7.5.0}
     image: kafka-with-jmx:${KAFKA_VERSION:-7.5.0}
     container_name: kafka02
     hostname: kafka02
     depends_on:
       zookeeper:
         condition: service_healthy
+      kafka01:
+        condition: service_started
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -470,17 +467,14 @@ services:
       - "observability.kafka.broker_id=2"
 
   kafka03:
-    build:
-      context: ./kafka
-      dockerfile: Dockerfile
-      args:
-        KAFKA_VERSION: ${KAFKA_VERSION:-7.5.0}
     image: kafka-with-jmx:${KAFKA_VERSION:-7.5.0}
     container_name: kafka03
     hostname: kafka03
     depends_on:
       zookeeper:
         condition: service_healthy
+      kafka01:
+        condition: service_started
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
