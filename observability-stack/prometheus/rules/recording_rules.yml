@@ -259,7 +259,7 @@ groups:
         expr: avg_over_time(probe_success[5m])
 
       - record: probe:success_rate:5m:by_job
-        expr: avg_over_time(probe_success[5m]) by (job, instance)
+        expr: avg by (job, instance) (avg_over_time(probe_success[5m]))
 
       # ------------------------------------------------------------------------
       # Probe Duration
