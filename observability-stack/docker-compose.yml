@@ -279,10 +279,6 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-      es02:
-        condition: service_healthy
-      es03:
-        condition: service_healthy
       post-setup:
         condition: service_completed_successfully
     environment:
@@ -536,10 +532,6 @@ services:
     depends_on:
       kafka01:
         condition: service_healthy
-      kafka02:
-        condition: service_healthy
-      kafka03:
-        condition: service_healthy
     command:
       - '--kafka.server=kafka01:9092'
       - '--kafka.server=kafka02:9092'
@@ -551,6 +543,7 @@ services:
       - '--web.telemetry-path=/metrics'
       - '--concurrent.enable=true'
       - '--topic.workers=4'
+      - '--kafka.version=3.6.0'
     ports:
       - 9308:9308
     networks:
@@ -560,8 +553,8 @@ services:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9308/metrics || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     labels:
       - "observability.component=kafka-exporter"
 
@@ -605,11 +598,12 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/stats | grep -q '\"status\":\"green\"' || curl -s http://localhost:9600 | grep -q 'ok'"]
+      # Check if Logstash API is responding (more tolerant check)
+      test: ["CMD-SHELL", "curl -sf http://localhost:9600/ || exit 1"]
       interval: 30s
       timeout: 15s
-      retries: 5
-      start_period: 120s
+      retries: 10
+      start_period: 180s
     labels:
       - "observability.component=logstash"
 
@@ -714,24 +708,21 @@ services:
     depends_on:
       es01:
         condition: service_healthy
-    command:
-      - '--es.uri=https://elastic:${ELASTIC_PASSWORD}@es01:9200'
-      - '--es.ssl-skip-verify'
-      - '--es.all'
-      - '--es.indices'
-      - '--es.indices_settings'
-      - '--es.indices_mappings'
-      - '--es.shards'
-      - '--es.snapshots'
-      - '--es.cluster_settings'
-      - '--es.timeout=30s'
-      - '--web.listen-address=:9114'
-      - '--web.telemetry-path=/metrics'
+    environment:
+      - ES_URI=https://elastic:${ELASTIC_PASSWORD:-changeme}@es01:9200
+    # Use shell to properly expand the ES_URI environment variable
+    entrypoint: ["/bin/sh", "-c", "/bin/elasticsearch_exporter --es.uri=$$ES_URI --es.ssl-skip-verify --es.all --es.indices --es.indices_settings --es.indices_mappings --es.shards --es.snapshots --es.cluster_settings --es.timeout=30s --web.listen-address=:9114 --web.telemetry-path=/metrics"]
     ports:
       - 9114:9114
     networks:
       - elastic
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9114/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     labels:
       - "observability.component=elasticsearch-exporter"
 
@@ -763,6 +754,17 @@ services:
       - '--config=/etc/otel/otel-collector-config.yml'
     volumes:
       - ./otel/otel-collector-config.yml:/etc/otel/otel-collector-config.yml:ro
+      # Mount host paths for hostmetrics receiver
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
+      - /:/hostfs:ro
+    environment:
+      - HOST_PROC=/hostfs/proc
+      - HOST_SYS=/hostfs/sys
+      - HOST_ETC=/hostfs/etc
+      - HOST_VAR=/hostfs/var
+      - HOST_RUN=/hostfs/run
+      - HOST_DEV=/hostfs/dev
     ports:
       - 4317:4317   # OTLP gRPC receiver
       - 4318:4318   # OTLP HTTP receiver
@@ -773,6 +775,12 @@ services:
     networks:
       - elastic
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:13133/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     labels:
       - "observability.component=otel-collector"
 

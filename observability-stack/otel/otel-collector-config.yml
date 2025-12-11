@@ -42,6 +42,8 @@ receivers:
   # ==========================================================================
   hostmetrics:
     collection_interval: 30s
+    # Use host filesystem paths mounted to /hostfs
+    root_path: /hostfs
     scrapers:
       cpu:
         metrics:
@@ -49,6 +51,14 @@ receivers:
             enabled: true
       disk:
       filesystem:
+        exclude_mount_points:
+          mount_points:
+            - /dev/*
+            - /proc/*
+            - /sys/*
+            - /run/*
+            - /var/lib/docker/*
+          match_type: regexp
       load:
       memory:
         metrics:
@@ -58,6 +68,8 @@ receivers:
       process:
         mute_process_name_error: true
         mute_process_exe_error: true
+        mute_process_io_error: true
+        mute_process_cgroup_error: true
 
 # ----------------------------------------------------------------------------
 # PROCESSORS - Transformations des donnees
