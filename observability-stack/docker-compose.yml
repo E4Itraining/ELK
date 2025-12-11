@@ -337,9 +337,10 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      test: ["CMD-SHELL", "wget -q --tries=1 -O /dev/null http://localhost:9090/-/healthy || exit 1"]
       interval: 10s
       timeout: 5s
+      start_period: 30s
       retries: 30
     labels:
       - "observability.component=prometheus"
