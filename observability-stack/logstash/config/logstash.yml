@@ -28,11 +28,7 @@ pipeline.ecs_compatibility: v8
 # ----------------------------------------------------------------------------
 # MONITORING SETTINGS
 # ----------------------------------------------------------------------------
-# Expose metrics on HTTP
-http.host: "0.0.0.0"
-http.port: 9600
-
-# Enable API monitoring
+# Enable API monitoring (Logstash 8.x uses api.* settings)
 api.enabled: true
 api.http.host: "0.0.0.0"
 api.http.port: 9600
