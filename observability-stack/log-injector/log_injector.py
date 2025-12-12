@@ -415,7 +415,7 @@ def create_es_client() -> Elasticsearch:
         basic_auth=(ES_USER, ES_PASSWORD),
         verify_certs=ES_VERIFY_CERTS,
         ssl_show_warn=False,
-        request_timeout=30,
+        request_timeout=120,
         max_retries=3,
         retry_on_timeout=True
     )
@@ -532,6 +532,8 @@ def bulk_index_logs(es: Elasticsearch, logs: List[Dict[str, Any]]) -> int:
         success, failed = helpers.bulk(
             es,
             actions,
+            chunk_size=500,
+            request_timeout=120,
             raise_on_error=False,
             raise_on_exception=False
         )

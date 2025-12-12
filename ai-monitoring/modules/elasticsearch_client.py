@@ -415,6 +415,8 @@ class AIMonitoringClient:
             success, errors = helpers.bulk(
                 self.client,
                 actions,
+                chunk_size=500,
+                request_timeout=120,
                 refresh=refresh,
                 raise_on_error=False,
                 stats_only=False,
