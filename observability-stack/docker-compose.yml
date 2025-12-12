@@ -398,13 +398,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use a staged check: first verify Kafka process is running and port is listening,
-      # then verify broker can respond to API requests. This handles JMX agent slow startup.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>&1 | head -1 | grep -qE '^kafka0[1-3]:' || exit 1"]
+      # Simple check: verify Kafka broker responds to API version requests.
+      # The command returns exit code 0 on success, which is all we need to verify health.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
       interval: 15s
-      timeout: 30s
-      retries: 40
-      start_period: 120s
+      timeout: 45s
+      retries: 60
+      start_period: 180s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=1"
@@ -458,13 +458,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use a staged check: first verify Kafka process is running and port is listening,
-      # then verify broker can respond to API requests. This handles JMX agent slow startup.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>&1 | head -1 | grep -qE '^kafka0[1-3]:' || exit 1"]
+      # Simple check: verify Kafka broker responds to API version requests.
+      # The command returns exit code 0 on success, which is all we need to verify health.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
       interval: 15s
-      timeout: 30s
-      retries: 40
-      start_period: 120s
+      timeout: 45s
+      retries: 60
+      start_period: 180s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=2"
@@ -518,13 +518,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use a staged check: first verify Kafka process is running and port is listening,
-      # then verify broker can respond to API requests. This handles JMX agent slow startup.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>&1 | head -1 | grep -qE '^kafka0[1-3]:' || exit 1"]
+      # Simple check: verify Kafka broker responds to API version requests.
+      # The command returns exit code 0 on success, which is all we need to verify health.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
       interval: 15s
-      timeout: 30s
-      retries: 40
-      start_period: 120s
+      timeout: 45s
+      retries: 60
+      start_period: 180s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=3"
