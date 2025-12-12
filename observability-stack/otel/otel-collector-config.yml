@@ -128,9 +128,6 @@ processors:
         metric_names:
           # Exclure les metriques trop verbeuses
           - ".*_bucket$"  # Histograms buckets (garder summary)
-        resource_attributes:
-          - key: service.name
-            value: "internal-.*"
 
   # ==========================================================================
   # TRANSFORM PROCESSOR - Transformations avancees
