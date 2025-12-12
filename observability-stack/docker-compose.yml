@@ -776,8 +776,11 @@ services:
         condition: service_healthy
     environment:
       - ES_URI=https://elastic:${ELASTIC_PASSWORD:-changeme}@es01:9200
-    # Use shell to properly expand the ES_URI environment variable
-    entrypoint: ["/bin/sh", "-c", "/bin/elasticsearch_exporter --es.uri=$$ES_URI --es.ssl-skip-verify --es.all --es.indices --es.indices_settings --es.indices_mappings --es.shards --es.snapshots --es.cluster_settings --es.timeout=30s --web.listen-address=:9114 --web.telemetry-path=/metrics"]
+      - ES_CA=/usr/share/elasticsearch/config/certs/ca/ca.crt
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+    # Use shell to properly expand environment variables and use CA certificate
+    entrypoint: ["/bin/sh", "-c", "/bin/elasticsearch_exporter --es.uri=$$ES_URI --es.ca=$$ES_CA --es.all --es.indices --es.indices_settings --es.indices_mappings --es.shards --es.snapshots --es.cluster_settings --es.timeout=30s --web.listen-address=:9114 --web.telemetry-path=/metrics"]
     ports:
       - 9114:9114
     networks:
@@ -787,8 +790,8 @@ services:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9114/metrics || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     labels:
       - "observability.component=elasticsearch-exporter"
 
@@ -868,6 +871,8 @@ services:
       - HOST_VAR=/hostfs/var
       - HOST_RUN=/hostfs/run
       - HOST_DEV=/hostfs/dev
+      # GOMEMLIMIT replaces deprecated memory_ballast extension
+      - GOMEMLIMIT=400MiB
     ports:
       - 4317:4317   # OTLP gRPC receiver
       - 4318:4318   # OTLP HTTP receiver

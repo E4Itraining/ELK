@@ -255,10 +255,12 @@ extensions:
     endpoint: 0.0.0.0:1777
 
   # ==========================================================================
-  # MEMORY BALLAST - Optimisation memoire
+  # MEMORY BALLAST - DEPRECATED in 0.55.0, removed in later versions
   # ==========================================================================
-  memory_ballast:
-    size_mib: 128
+  # NOTE: memory_ballast is no longer supported in otel-collector >= 0.55.0
+  # Use GOMEMLIMIT environment variable instead (set in docker-compose.yml)
+  # memory_ballast:
+  #   size_mib: 128
 
 # ----------------------------------------------------------------------------
 # SERVICE - Definition des pipelines
@@ -268,7 +270,7 @@ service:
     - health_check
     - zpages
     - pprof
-    - memory_ballast
+    # memory_ballast removed - deprecated in otel-collector >= 0.55.0
 
   telemetry:
     logs:
