@@ -505,11 +505,11 @@ def ensure_index_template(es: Elasticsearch):
                 }
             }
         },
-        'priority': 100
+        'priority': 200
     }
 
     try:
-        es.indices.put_index_template(name=template_name, body=template_body)
+        es.indices.put_index_template(name=template_name, **template_body)
         logger.info(f"Index template '{template_name}' created/updated")
     except Exception as e:
         logger.warning(f"Could not create index template: {e}")
@@ -529,11 +529,12 @@ def bulk_index_logs(es: Elasticsearch, logs: List[Dict[str, Any]]) -> int:
     ]
 
     try:
+        # Use es.options() to set transport options (avoids deprecation warning)
+        es_with_timeout = es.options(request_timeout=120)
         success, failed = helpers.bulk(
-            es,
+            es_with_timeout,
             actions,
             chunk_size=500,
-            request_timeout=120,
             raise_on_error=False,
             raise_on_exception=False
         )
