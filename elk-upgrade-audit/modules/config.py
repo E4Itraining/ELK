@@ -20,7 +20,7 @@ class ElasticsearchConfig:
     password: str = ""
     verify_certs: bool = True
     ca_certs: str = ""
-    timeout: int = 30
+    timeout: int = 120
     max_retries: int = 3
 
 

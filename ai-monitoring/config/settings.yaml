@@ -11,7 +11,7 @@ elasticsearch:
   ca_certs: "${ES_CA_CERTS}"
   verify_certs: true
   ssl_show_warn: true
-  timeout: 30
+  timeout: 120
   max_retries: 3
 
 # Kibana connection for dashboard management

@@ -12,7 +12,7 @@ elasticsearch:
   verify_certs: true
   ca_certs: ""
   # Timeout settings (seconds)
-  timeout: 30
+  timeout: 120
   max_retries: 3
 
 # Cluster information

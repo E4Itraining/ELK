@@ -26,7 +26,7 @@ class ElasticsearchConfig:
     ca_certs: Optional[str] = None
     verify_certs: bool = True
     ssl_show_warn: bool = True
-    timeout: int = 30
+    timeout: int = 120
     max_retries: int = 3
 
 
