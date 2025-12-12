@@ -315,6 +315,217 @@ groups:
           description: "Based on current growth, node {{ $labels.name }} will run out of disk space within 6 hours!"
 
   # ==========================================================================
+  # ELASTICSEARCH THREAD POOL ALERTS
+  # ==========================================================================
+  - name: elasticsearch_threadpool_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Thread Pool Rejections
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchSearchRejections
+        expr: elasticsearch:threadpool:rejected_rate:5m:search > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: threadpool
+        annotations:
+          summary: "Elasticsearch search thread pool rejecting requests"
+          description: "Node {{ $labels.name }} is rejecting {{ $value }} search requests/s. Cluster is under heavy search load."
+          runbook_url: "https://wiki.example.com/elasticsearch/threadpool-rejections"
+
+      - alert: ElasticsearchWriteRejections
+        expr: elasticsearch:threadpool:rejected_rate:5m:write > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: threadpool
+        annotations:
+          summary: "Elasticsearch write thread pool rejecting requests"
+          description: "Node {{ $labels.name }} is rejecting {{ $value }} write requests/s. Cluster is under heavy indexing load."
+
+      - alert: ElasticsearchSearchQueueHigh
+        expr: elasticsearch:threadpool:queue_size:search > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: threadpool
+        annotations:
+          summary: "Elasticsearch search queue is high"
+          description: "Node {{ $labels.name }} has {{ $value }} pending search requests in queue."
+
+      - alert: ElasticsearchWriteQueueHigh
+        expr: elasticsearch:threadpool:queue_size:write > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: threadpool
+        annotations:
+          summary: "Elasticsearch write queue is high"
+          description: "Node {{ $labels.name }} has {{ $value }} pending write requests in queue."
+
+  # ==========================================================================
+  # ELASTICSEARCH CIRCUIT BREAKER ALERTS
+  # ==========================================================================
+  - name: elasticsearch_breaker_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Circuit Breaker Usage
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchParentBreakerWarning
+        expr: elasticsearch:breaker:parent:usage_ratio > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: memory
+        annotations:
+          summary: "Elasticsearch parent circuit breaker usage high"
+          description: "Node {{ $labels.name }} parent circuit breaker is at {{ $value | humanizePercentage }} of limit."
+
+      - alert: ElasticsearchParentBreakerCritical
+        expr: elasticsearch:breaker:parent:usage_ratio > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: memory
+        annotations:
+          summary: "Elasticsearch parent circuit breaker near limit"
+          description: "Node {{ $labels.name }} parent circuit breaker is at {{ $value | humanizePercentage }} of limit. May start rejecting requests."
+
+      - alert: ElasticsearchFielddataBreakerHigh
+        expr: elasticsearch:breaker:fielddata:usage_ratio > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: memory
+        annotations:
+          summary: "Elasticsearch fielddata circuit breaker high"
+          description: "Node {{ $labels.name }} fielddata usage is at {{ $value | humanizePercentage }} of limit."
+
+      - alert: ElasticsearchCircuitBreakerTripped
+        expr: elasticsearch:breaker:tripped_rate:5m > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: memory
+        annotations:
+          summary: "Elasticsearch circuit breaker tripped"
+          description: "Circuit breaker {{ $labels.name }} on node {{ $labels.node }} has tripped {{ $value }} times in the last 5 minutes."
+
+  # ==========================================================================
+  # ELASTICSEARCH OS/PROCESS ALERTS
+  # ==========================================================================
+  - name: elasticsearch_os_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # CPU
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchHighCPU
+        expr: elasticsearch:os:cpu_percent > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: resources
+        annotations:
+          summary: "Elasticsearch node high CPU usage"
+          description: "Node {{ $labels.name }} CPU usage is at {{ $value }}%."
+
+      - alert: ElasticsearchHighCPUCritical
+        expr: elasticsearch:os:cpu_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: resources
+        annotations:
+          summary: "Elasticsearch node critical CPU usage"
+          description: "Node {{ $labels.name }} CPU usage is at {{ $value }}%!"
+
+      # ------------------------------------------------------------------------
+      # Load Average
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchHighLoadAverage
+        expr: elasticsearch:os:load_average_5m > 4
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: resources
+        annotations:
+          summary: "Elasticsearch node high load average"
+          description: "Node {{ $labels.name }} 5-minute load average is {{ $value }}."
+
+      # ------------------------------------------------------------------------
+      # File Descriptors
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchFileDescriptorsWarning
+        expr: elasticsearch:process:fds_usage_ratio > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: resources
+        annotations:
+          summary: "Elasticsearch file descriptors running low"
+          description: "Node {{ $labels.name }} is using {{ $value | humanizePercentage }} of available file descriptors."
+
+      - alert: ElasticsearchFileDescriptorsCritical
+        expr: elasticsearch:process:fds_usage_ratio > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+          category: resources
+        annotations:
+          summary: "Elasticsearch file descriptors critical"
+          description: "Node {{ $labels.name }} is using {{ $value | humanizePercentage }} of available file descriptors!"
+
+  # ==========================================================================
+  # ELASTICSEARCH CACHE ALERTS
+  # ==========================================================================
+  - name: elasticsearch_cache_alerts
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Query Cache
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchQueryCacheEvictions
+        expr: elasticsearch:cache:query:evictions_rate:5m > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: cache
+        annotations:
+          summary: "High query cache eviction rate"
+          description: "Node {{ $labels.name }} is evicting {{ $value }} query cache entries/s. Consider increasing query cache size."
+
+      # ------------------------------------------------------------------------
+      # Fielddata
+      # ------------------------------------------------------------------------
+      - alert: ElasticsearchFielddataEvictions
+        expr: elasticsearch:fielddata:evictions_rate:5m > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: elasticsearch
+          category: cache
+        annotations:
+          summary: "High fielddata eviction rate"
+          description: "Node {{ $labels.name }} is evicting {{ $value }} fielddata entries/s. Consider using doc values instead of fielddata."
+
+  # ==========================================================================
   # BLACKBOX PROBE ALERTS
   # ==========================================================================
   - name: blackbox_alerts

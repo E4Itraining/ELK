@@ -315,3 +315,301 @@ groups:
         expr: |
           avg(otelcol_processor_batch_batch_send_size_sum
               / otelcol_processor_batch_batch_send_size_count) by (processor)
+
+  # ==========================================================================
+  # ELASTICSEARCH THREAD POOL METRICS
+  # ==========================================================================
+  - name: elasticsearch_threadpool_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Thread Pool Queue Size
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:threadpool:queue_size
+        expr: elasticsearch_thread_pool_queue_count
+
+      - record: elasticsearch:threadpool:queue_size:search
+        expr: elasticsearch_thread_pool_queue_count{name="search"}
+
+      - record: elasticsearch:threadpool:queue_size:write
+        expr: elasticsearch_thread_pool_queue_count{name="write"}
+
+      - record: elasticsearch:threadpool:queue_size:get
+        expr: elasticsearch_thread_pool_queue_count{name="get"}
+
+      # ------------------------------------------------------------------------
+      # Thread Pool Active Threads
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:threadpool:active
+        expr: elasticsearch_thread_pool_active_count
+
+      - record: elasticsearch:threadpool:active:search
+        expr: elasticsearch_thread_pool_active_count{name="search"}
+
+      - record: elasticsearch:threadpool:active:write
+        expr: elasticsearch_thread_pool_active_count{name="write"}
+
+      # ------------------------------------------------------------------------
+      # Thread Pool Rejections
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:threadpool:rejected_rate:5m
+        expr: rate(elasticsearch_thread_pool_rejected_count[5m])
+
+      - record: elasticsearch:threadpool:rejected_rate:5m:search
+        expr: rate(elasticsearch_thread_pool_rejected_count{name="search"}[5m])
+
+      - record: elasticsearch:threadpool:rejected_rate:5m:write
+        expr: rate(elasticsearch_thread_pool_rejected_count{name="write"}[5m])
+
+      - record: elasticsearch:threadpool:rejected_total
+        expr: elasticsearch_thread_pool_rejected_count
+
+      # ------------------------------------------------------------------------
+      # Thread Pool Completed Rate
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:threadpool:completed_rate:5m
+        expr: rate(elasticsearch_thread_pool_completed_count[5m])
+
+      - record: elasticsearch:threadpool:completed_rate:5m:search
+        expr: rate(elasticsearch_thread_pool_completed_count{name="search"}[5m])
+
+      - record: elasticsearch:threadpool:completed_rate:5m:write
+        expr: rate(elasticsearch_thread_pool_completed_count{name="write"}[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH CIRCUIT BREAKER METRICS
+  # ==========================================================================
+  - name: elasticsearch_breaker_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Circuit Breaker Estimated Size
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:breaker:estimated_bytes
+        expr: elasticsearch_breakers_estimated_size_bytes
+
+      - record: elasticsearch:breaker:limit_bytes
+        expr: elasticsearch_breakers_limit_size_bytes
+
+      - record: elasticsearch:breaker:usage_ratio
+        expr: |
+          elasticsearch_breakers_estimated_size_bytes
+          / elasticsearch_breakers_limit_size_bytes
+
+      # Parent Breaker Usage
+      - record: elasticsearch:breaker:parent:usage_ratio
+        expr: |
+          elasticsearch_breakers_estimated_size_bytes{name="parent"}
+          / elasticsearch_breakers_limit_size_bytes{name="parent"}
+
+      # Field Data Breaker Usage
+      - record: elasticsearch:breaker:fielddata:usage_ratio
+        expr: |
+          elasticsearch_breakers_estimated_size_bytes{name="fielddata"}
+          / elasticsearch_breakers_limit_size_bytes{name="fielddata"}
+
+      # Request Breaker Usage
+      - record: elasticsearch:breaker:request:usage_ratio
+        expr: |
+          elasticsearch_breakers_estimated_size_bytes{name="request"}
+          / elasticsearch_breakers_limit_size_bytes{name="request"}
+
+      # ------------------------------------------------------------------------
+      # Circuit Breaker Tripped Rate
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:breaker:tripped_rate:5m
+        expr: rate(elasticsearch_breakers_tripped[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH OS/PROCESS METRICS
+  # ==========================================================================
+  - name: elasticsearch_os_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # CPU Usage
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:os:cpu_percent
+        expr: elasticsearch_os_cpu_percent
+
+      - record: elasticsearch:process:cpu_percent
+        expr: elasticsearch_process_cpu_percent
+
+      # ------------------------------------------------------------------------
+      # Memory
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:os:mem_used_percent
+        expr: elasticsearch_os_mem_used_percent
+
+      - record: elasticsearch:os:mem_free_bytes
+        expr: elasticsearch_os_mem_free_bytes
+
+      - record: elasticsearch:os:mem_total_bytes
+        expr: elasticsearch_os_mem_total_bytes
+
+      # ------------------------------------------------------------------------
+      # Load Average
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:os:load_average_1m
+        expr: elasticsearch_os_load1
+
+      - record: elasticsearch:os:load_average_5m
+        expr: elasticsearch_os_load5
+
+      - record: elasticsearch:os:load_average_15m
+        expr: elasticsearch_os_load15
+
+      # ------------------------------------------------------------------------
+      # Open File Descriptors
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:process:open_fds
+        expr: elasticsearch_process_open_files_count
+
+      - record: elasticsearch:process:max_fds
+        expr: elasticsearch_process_max_files_descriptors
+
+      - record: elasticsearch:process:fds_usage_ratio
+        expr: |
+          elasticsearch_process_open_files_count
+          / elasticsearch_process_max_files_descriptors
+
+  # ==========================================================================
+  # ELASTICSEARCH TRANSPORT METRICS
+  # ==========================================================================
+  - name: elasticsearch_transport_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Transport TX/RX
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:transport:rx_bytes_rate:5m
+        expr: rate(elasticsearch_transport_rx_bytes_total[5m])
+
+      - record: elasticsearch:transport:tx_bytes_rate:5m
+        expr: rate(elasticsearch_transport_tx_bytes_total[5m])
+
+      - record: elasticsearch:transport:rx_packets_rate:5m
+        expr: rate(elasticsearch_transport_rx_packets_total[5m])
+
+      - record: elasticsearch:transport:tx_packets_rate:5m
+        expr: rate(elasticsearch_transport_tx_packets_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Server Connections
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:transport:server_open
+        expr: elasticsearch_transport_server_open_total
+
+  # ==========================================================================
+  # ELASTICSEARCH HTTP METRICS
+  # ==========================================================================
+  - name: elasticsearch_http_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # HTTP Connections
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:http:current_open
+        expr: elasticsearch_http_current_open
+
+      - record: elasticsearch:http:total_opened_rate:5m
+        expr: rate(elasticsearch_http_total_opened[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH DOCUMENT METRICS
+  # ==========================================================================
+  - name: elasticsearch_docs_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Document Counts
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indices:docs_count
+        expr: sum(elasticsearch_indices_docs_count)
+
+      - record: elasticsearch:indices:docs_deleted
+        expr: sum(elasticsearch_indices_docs_deleted)
+
+      - record: elasticsearch:indices:docs_count:by_index
+        expr: elasticsearch_indices_docs_count
+
+      # ------------------------------------------------------------------------
+      # Merge Operations
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indices:merges_rate:5m
+        expr: rate(elasticsearch_indices_merges_total[5m])
+
+      - record: elasticsearch:indices:merges_docs_rate:5m
+        expr: rate(elasticsearch_indices_merges_docs_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Refresh Operations
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indices:refresh_rate:5m
+        expr: rate(elasticsearch_indices_refresh_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Flush Operations
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:indices:flush_rate:5m
+        expr: rate(elasticsearch_indices_flush_total[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH CACHE METRICS
+  # ==========================================================================
+  - name: elasticsearch_cache_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Query Cache
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:cache:query:hit_rate:5m
+        expr: |
+          rate(elasticsearch_indices_querycache_hits_total[5m])
+          / (rate(elasticsearch_indices_querycache_hits_total[5m])
+             + rate(elasticsearch_indices_querycache_misses_total[5m]))
+
+      - record: elasticsearch:cache:query:memory_bytes
+        expr: elasticsearch_indices_querycache_memory_size_bytes
+
+      - record: elasticsearch:cache:query:evictions_rate:5m
+        expr: rate(elasticsearch_indices_querycache_evictions_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Request Cache
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:cache:request:hit_rate:5m
+        expr: |
+          rate(elasticsearch_indices_requestcache_hits_total[5m])
+          / (rate(elasticsearch_indices_requestcache_hits_total[5m])
+             + rate(elasticsearch_indices_requestcache_misses_total[5m]))
+
+      - record: elasticsearch:cache:request:memory_bytes
+        expr: elasticsearch_indices_requestcache_memory_size_bytes
+
+      - record: elasticsearch:cache:request:evictions_rate:5m
+        expr: rate(elasticsearch_indices_requestcache_evictions_total[5m])
+
+      # ------------------------------------------------------------------------
+      # Fielddata
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:fielddata:memory_bytes
+        expr: elasticsearch_indices_fielddata_memory_size_bytes
+
+      - record: elasticsearch:fielddata:evictions_rate:5m
+        expr: rate(elasticsearch_indices_fielddata_evictions_total[5m])
+
+  # ==========================================================================
+  # ELASTICSEARCH SEGMENTS METRICS
+  # ==========================================================================
+  - name: elasticsearch_segments_rules
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------------
+      # Segment Counts
+      # ------------------------------------------------------------------------
+      - record: elasticsearch:segments:count
+        expr: sum(elasticsearch_indices_segments_count)
+
+      - record: elasticsearch:segments:memory_bytes
+        expr: sum(elasticsearch_indices_segments_memory_bytes)

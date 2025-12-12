@@ -287,3 +287,15 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox-exporter:9115
+
+  # ==========================================================================
+  # METRICBEAT METRICS (Comprehensive ES Metrics)
+  # ==========================================================================
+  - job_name: 'metricbeat'
+    static_configs:
+      - targets: ['metricbeat:5066']
+        labels:
+          cluster: 'observability-cluster'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /stats

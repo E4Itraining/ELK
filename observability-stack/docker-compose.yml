@@ -793,6 +793,43 @@ services:
       - "observability.component=elasticsearch-exporter"
 
   # ==========================================================================
+  # METRICBEAT - Comprehensive Elasticsearch Metrics
+  # ==========================================================================
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:${STACK_VERSION:-8.11.0}
+    container_name: metricbeat
+    user: root
+    depends_on:
+      es01:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ./metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
+      - certs:/usr/share/metricbeat/certs:ro
+      - metricbeat_data:/usr/share/metricbeat/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+      - /proc:/hostfs/proc:ro
+      - /:/hostfs:ro
+    command: ["--strict.perms=false", "-e"]
+    ports:
+      - 5066:5066
+    networks:
+      - elastic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5066/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "observability.component=metricbeat"
+
+  # ==========================================================================
   # BLACKBOX EXPORTER
   # ==========================================================================
   blackbox-exporter:
@@ -920,4 +957,6 @@ volumes:
   alertmanager_data:
     driver: local
   grafana_data:
+    driver: local
+  metricbeat_data:
     driver: local
