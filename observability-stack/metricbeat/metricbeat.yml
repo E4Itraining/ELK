@@ -1,0 +1,225 @@
+# ============================================================================
+# METRICBEAT CONFIGURATION
+# ============================================================================
+# Comprehensive Elasticsearch metrics collection
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# GENERAL SETTINGS
+# ----------------------------------------------------------------------------
+name: metricbeat
+tags: ["observability", "elasticsearch-metrics"]
+
+# ----------------------------------------------------------------------------
+# ELASTICSEARCH MODULE - Primary Metrics Source
+# ----------------------------------------------------------------------------
+metricbeat.modules:
+
+  # Cluster-wide metrics (from any node)
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 10s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    metricsets:
+      - cluster_stats
+      - pending_tasks
+
+  # Node-level metrics - es01
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 10s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    scope: node
+    metricsets:
+      - node
+      - node_stats
+
+  # Node-level metrics - es02
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 10s
+    hosts: ["https://es02:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    scope: node
+    metricsets:
+      - node
+      - node_stats
+
+  # Node-level metrics - es03
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 10s
+    hosts: ["https://es03:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    scope: node
+    metricsets:
+      - node
+      - node_stats
+
+  # Index-level metrics (sampled less frequently)
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 60s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    metricsets:
+      - index
+      - index_summary
+      - shard
+
+  # ML metrics (if ML is enabled)
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 30s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    metricsets:
+      - ml_job
+    enabled: false  # Enable if using ML features
+
+  # Enrich stats (if using enrich processors)
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 30s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    metricsets:
+      - enrich
+    enabled: false  # Enable if using enrich processors
+
+  # CCR metrics (if using cross-cluster replication)
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 30s
+    hosts: ["https://es01:9200"]
+    username: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+    ssl.enabled: true
+    ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+    ssl.verification_mode: none
+    metricsets:
+      - ccr
+    enabled: false  # Enable if using CCR
+
+# ----------------------------------------------------------------------------
+# SYSTEM MODULE - Host metrics from Metricbeat container
+# ----------------------------------------------------------------------------
+  - module: system
+    period: 30s
+    metricsets:
+      - cpu
+      - load
+      - memory
+      - network
+      - process
+      - process_summary
+    process.include_top_n:
+      by_cpu: 5
+      by_memory: 5
+
+# ----------------------------------------------------------------------------
+# HTTP MODULE - Expose Prometheus metrics endpoint
+# ----------------------------------------------------------------------------
+http.enabled: true
+http.host: "0.0.0.0"
+http.port: 5066
+
+# ----------------------------------------------------------------------------
+# PROCESSORS
+# ----------------------------------------------------------------------------
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_fields:
+      target: ''
+      fields:
+        cluster_name: observability-cluster
+        environment: production
+
+# ----------------------------------------------------------------------------
+# OUTPUT - ELASTICSEARCH
+# ----------------------------------------------------------------------------
+output.elasticsearch:
+  hosts: ["https://es01:9200"]
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+  ssl.verification_mode: none
+  index: "metricbeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+
+# Setup index lifecycle policy
+setup.ilm.enabled: true
+setup.ilm.rollover_alias: "metricbeat"
+setup.ilm.pattern: "{now/d}-000001"
+setup.ilm.policy_name: "metrics-policy"
+
+# Setup template
+setup.template.enabled: true
+setup.template.name: "metricbeat"
+setup.template.pattern: "metricbeat-*"
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 1
+
+# Setup Kibana dashboards
+setup.kibana:
+  host: "http://kibana:5601"
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+setup.dashboards.enabled: true
+
+# ----------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /usr/share/metricbeat/logs
+  name: metricbeat
+  keepfiles: 7
+  permissions: 0640
+
+# ----------------------------------------------------------------------------
+# MONITORING (Self-monitoring)
+# ----------------------------------------------------------------------------
+monitoring.enabled: true
+monitoring.elasticsearch:
+  hosts: ["https://es01:9200"]
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/usr/share/metricbeat/certs/ca/ca.crt"]
+  ssl.verification_mode: none
