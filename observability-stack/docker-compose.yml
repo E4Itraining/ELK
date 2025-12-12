@@ -398,13 +398,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use Confluent's cub utility for reliable broker readiness check.
-      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
-      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
+      # Use kafka-broker-api-versions to verify broker is accepting connections.
+      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
       interval: 15s
-      timeout: 45s
+      timeout: 30s
       retries: 30
-      start_period: 120s
+      start_period: 90s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=1"
@@ -458,13 +458,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use Confluent's cub utility for reliable broker readiness check.
-      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
-      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
+      # Use kafka-broker-api-versions to verify broker is accepting connections.
+      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
       interval: 15s
-      timeout: 45s
+      timeout: 30s
       retries: 30
-      start_period: 120s
+      start_period: 90s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=2"
@@ -518,13 +518,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use Confluent's cub utility for reliable broker readiness check.
-      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
-      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
+      # Use kafka-broker-api-versions to verify broker is accepting connections.
+      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
       interval: 15s
-      timeout: 45s
+      timeout: 30s
       retries: 30
-      start_period: 120s
+      start_period: 90s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=3"
