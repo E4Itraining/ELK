@@ -398,13 +398,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use kafka-broker-api-versions to verify broker is accepting connections.
-      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
-      interval: 15s
-      timeout: 30s
+      # Use nc (netcat) for a fast, non-blocking TCP port check.
+      # This avoids blocking issues with kafka-broker-api-versions command.
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 10s
+      timeout: 5s
       retries: 30
-      start_period: 90s
+      start_period: 60s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=1"
@@ -458,13 +458,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use kafka-broker-api-versions to verify broker is accepting connections.
-      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
-      interval: 15s
-      timeout: 30s
+      # Use nc (netcat) for a fast, non-blocking TCP port check.
+      # This avoids blocking issues with kafka-broker-api-versions command.
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 10s
+      timeout: 5s
       retries: 30
-      start_period: 90s
+      start_period: 60s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=2"
@@ -518,13 +518,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Use kafka-broker-api-versions to verify broker is accepting connections.
-      # This is the most reliable healthcheck as it tests actual Kafka protocol connectivity.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 --command-config /dev/null 2>/dev/null | grep -q ApiVersion || exit 1"]
-      interval: 15s
-      timeout: 30s
+      # Use nc (netcat) for a fast, non-blocking TCP port check.
+      # This avoids blocking issues with kafka-broker-api-versions command.
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 10s
+      timeout: 5s
       retries: 30
-      start_period: 90s
+      start_period: 60s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=3"
