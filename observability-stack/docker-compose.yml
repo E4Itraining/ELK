@@ -398,13 +398,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Simple check: verify Kafka broker responds to API version requests.
-      # The command returns exit code 0 on success, which is all we need to verify health.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
+      # Use Confluent's cub utility for reliable broker readiness check.
+      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
+      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
       interval: 15s
       timeout: 45s
-      retries: 60
-      start_period: 180s
+      retries: 30
+      start_period: 120s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=1"
@@ -458,13 +458,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Simple check: verify Kafka broker responds to API version requests.
-      # The command returns exit code 0 on success, which is all we need to verify health.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
+      # Use Confluent's cub utility for reliable broker readiness check.
+      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
+      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
       interval: 15s
       timeout: 45s
-      retries: 60
-      start_period: 180s
+      retries: 30
+      start_period: 120s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=2"
@@ -518,13 +518,13 @@ services:
       - elastic
     restart: unless-stopped
     healthcheck:
-      # Simple check: verify Kafka broker responds to API version requests.
-      # The command returns exit code 0 on success, which is all we need to verify health.
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'ApiVersion' || exit 1"]
+      # Use Confluent's cub utility for reliable broker readiness check.
+      # This waits for 1 broker to be ready with a 30s timeout - purpose-built for this use case.
+      test: ["CMD-SHELL", "cub kafka-ready 1 30 -b localhost:9092"]
       interval: 15s
       timeout: 45s
-      retries: 60
-      start_period: 180s
+      retries: 30
+      start_period: 120s
     labels:
       - "observability.component=kafka"
       - "observability.kafka.broker_id=3"
