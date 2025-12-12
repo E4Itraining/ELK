@@ -780,7 +780,7 @@ services:
     volumes:
       - certs:/usr/share/elasticsearch/config/certs:ro
     # Use shell to properly expand environment variables and use CA certificate
-    entrypoint: ["/bin/sh", "-c", "/bin/elasticsearch_exporter --es.uri=$$ES_URI --es.ca=$$ES_CA --es.all --es.indices --es.indices_settings --es.indices_mappings --es.shards --es.snapshots --es.cluster_settings --es.timeout=30s --web.listen-address=:9114 --web.telemetry-path=/metrics"]
+    entrypoint: ["/bin/sh", "-c", "/bin/elasticsearch_exporter --es.uri=$$ES_URI --es.ca=$$ES_CA --es.all --es.indices --es.indices_settings --es.indices_mappings --es.shards --es.snapshots --es.timeout=30s --web.listen-address=:9114 --web.telemetry-path=/metrics"]
     ports:
       - 9114:9114
     networks:
