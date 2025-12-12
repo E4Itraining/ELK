@@ -139,7 +139,7 @@ processors:
           # Convertir les unites
           - set(attributes["unit"], "bytes") where metric.name == "system.memory.usage"
           # Ajouter timestamp de processing
-          - set(attributes["processed_at"], UnixNano())
+          - set(attributes["processed_at"], UnixNano(Now()))
 
   # ==========================================================================
   # METRICS TRANSFORM - Renommage et aggregation
