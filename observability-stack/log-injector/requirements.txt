@@ -1,3 +1,5 @@
 # Log Injector Dependencies
-elasticsearch>=8.0.0,<9.0.0
-urllib3>=1.26.0,<2.0.0
+# Compatible with Elasticsearch 8.x and 9.x
+elasticsearch>=8.0.0
+urllib3>=2.0.0
+pyyaml>=6.0.0

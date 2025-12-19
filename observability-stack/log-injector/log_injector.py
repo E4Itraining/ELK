@@ -5,8 +5,27 @@ Log Injector - Generate and inject realistic logs into Elasticsearch
 This script generates realistic log data and injects it into an Elasticsearch
 cluster for testing and demonstration purposes.
 
+Features:
+- Multi-host support with automatic failover
+- Compatible with Elasticsearch 8.x and 9.x
+- Configurable via environment variables or YAML config file
+- Continuous injection with automatic reconnection
+- Dynamic host/password configuration
+
 Usage:
-    python log_injector.py [--rate LOGS_PER_SECOND] [--duration SECONDS]
+    python log_injector.py [--config CONFIG_FILE] [--rate LOGS_PER_SECOND] [--duration SECONDS]
+
+Environment Variables:
+    ES_HOSTS: Comma-separated list of ES hosts (e.g., "https://es01:9200,https://es02:9200")
+    ES_HOST: Single ES host (fallback if ES_HOSTS not set)
+    ES_USER: Elasticsearch username
+    ES_PASSWORD: Elasticsearch password
+    ES_API_KEY: API key for authentication (alternative to user/password)
+    ES_VERIFY_CERTS: Verify SSL certificates (true/false)
+    ES_CA_CERTS: Path to CA certificate file
+    INJECTION_RATE: Logs per second
+    INDEX_PREFIX: Index name prefix
+    CONFIG_FILE: Path to YAML configuration file
 """
 
 import os
@@ -19,9 +38,17 @@ import argparse
 import signal
 import logging
 from datetime import datetime, timezone
-from typing import Generator, Dict, Any, List
+from typing import Generator, Dict, Any, List, Optional, Union
+from pathlib import Path
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
 from elasticsearch import Elasticsearch, helpers
-from elasticsearch.exceptions import ConnectionError, TransportError
+from elasticsearch.exceptions import ConnectionError, TransportError, AuthenticationException
 
 # Configure logging
 logging.basicConfig(
@@ -34,16 +61,75 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # ============================================================================
 
-# Elasticsearch connection
-ES_HOST = os.environ.get('ES_HOST', 'https://es01:9200')
-ES_USER = os.environ.get('ES_USER', 'elastic')
-ES_PASSWORD = os.environ.get('ES_PASSWORD', 'changeme')
-ES_VERIFY_CERTS = os.environ.get('ES_VERIFY_CERTS', 'false').lower() == 'true'
+class Config:
+    """Configuration manager supporting environment variables and YAML config."""
 
-# Injection settings
-INJECTION_RATE = int(os.environ.get('INJECTION_RATE', '10'))
-INDEX_PREFIX = os.environ.get('INDEX_PREFIX', 'logs')
-BATCH_SIZE = 100
+    def __init__(self, config_file: Optional[str] = None):
+        self.config_file = config_file or os.environ.get('CONFIG_FILE')
+        self._config: Dict[str, Any] = {}
+        self._load_config()
+
+    def _load_config(self):
+        """Load configuration from file if available."""
+        if self.config_file and Path(self.config_file).exists():
+            if not YAML_AVAILABLE:
+                logger.warning("PyYAML not installed, cannot load config file")
+                return
+
+            with open(self.config_file, 'r') as f:
+                self._config = yaml.safe_load(f) or {}
+            logger.info(f"Loaded configuration from {self.config_file}")
+
+    def get(self, key: str, default: Any = None, env_key: Optional[str] = None) -> Any:
+        """Get configuration value with priority: env var > config file > default."""
+        env_key = env_key or key.upper().replace('.', '_')
+
+        # Check environment variable first
+        env_value = os.environ.get(env_key)
+        if env_value is not None:
+            return env_value
+
+        # Check config file (supports nested keys with dot notation)
+        value = self._config
+        for part in key.split('.'):
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return default
+
+        return value if value != self._config else default
+
+    def get_bool(self, key: str, default: bool = False, env_key: Optional[str] = None) -> bool:
+        """Get boolean configuration value."""
+        value = self.get(key, default, env_key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ('true', '1', 'yes', 'on')
+        return bool(value)
+
+    def get_int(self, key: str, default: int = 0, env_key: Optional[str] = None) -> int:
+        """Get integer configuration value."""
+        value = self.get(key, default, env_key)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+
+    def get_list(self, key: str, default: Optional[List] = None, env_key: Optional[str] = None) -> List:
+        """Get list configuration value (comma-separated in env vars)."""
+        value = self.get(key, default, env_key)
+        if value is None:
+            return default or []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(',') if v.strip()]
+        return default or []
+
+
+# Global configuration
+config = Config()
 
 # Graceful shutdown flag
 shutdown_requested = False
@@ -64,17 +150,39 @@ signal.signal(signal.SIGTERM, signal_handler)
 # LOG DATA GENERATORS
 # ============================================================================
 
-# Sample data for realistic log generation
-SERVICES = [
-    'api-gateway', 'auth-service', 'user-service', 'order-service',
-    'payment-service', 'notification-service', 'inventory-service',
-    'search-service', 'recommendation-engine', 'analytics-service'
-]
+# Sample data for realistic log generation - can be overridden via config
+def get_services() -> List[str]:
+    """Get list of services from config or defaults."""
+    return config.get_list('generators.services', [
+        'api-gateway', 'auth-service', 'user-service', 'order-service',
+        'payment-service', 'notification-service', 'inventory-service',
+        'search-service', 'recommendation-engine', 'analytics-service'
+    ])
 
-ENVIRONMENTS = ['production', 'staging', 'development']
-DATACENTERS = ['dc-us-east-1', 'dc-us-west-2', 'dc-eu-west-1', 'dc-ap-south-1']
-HOSTS = [f'host-{i:03d}' for i in range(1, 21)]
-VERSIONS = ['1.0.0', '1.1.0', '1.2.0', '2.0.0', '2.1.0']
+
+def get_environments() -> List[str]:
+    """Get list of environments from config or defaults."""
+    return config.get_list('generators.environments', ['production', 'staging', 'development'])
+
+
+def get_datacenters() -> List[str]:
+    """Get list of datacenters from config or defaults."""
+    return config.get_list('generators.datacenters',
+                          ['dc-us-east-1', 'dc-us-west-2', 'dc-eu-west-1', 'dc-ap-south-1'])
+
+
+def get_hosts() -> List[str]:
+    """Get list of simulated hosts from config or generate defaults."""
+    configured = config.get_list('generators.hosts')
+    if configured:
+        return configured
+
+    # Generate host names based on configured count
+    host_count = config.get_int('generators.host_count', 20)
+    return [f'host-{i:03d}' for i in range(1, host_count + 1)]
+
+
+VERSIONS = ['1.0.0', '1.1.0', '1.2.0', '2.0.0', '2.1.0', '3.0.0']
 
 LOG_LEVELS = {
     'DEBUG': 5,
@@ -189,7 +297,10 @@ def generate_log_message(level: str) -> str:
 def generate_application_log() -> Dict[str, Any]:
     """Generate a realistic application log entry."""
     level = weighted_choice(LOG_LEVELS)
-    service = random.choice(SERVICES)
+    service = random.choice(get_services())
+    environments = get_environments()
+    datacenters = get_datacenters()
+    hosts = get_hosts()
 
     log = {
         '@timestamp': datetime.now(timezone.utc).isoformat(),
@@ -199,12 +310,12 @@ def generate_application_log() -> Dict[str, Any]:
         'service': {
             'name': service,
             'version': random.choice(VERSIONS),
-            'environment': random.choice(ENVIRONMENTS)
+            'environment': random.choice(environments)
         },
         'host': {
-            'name': random.choice(HOSTS),
+            'name': random.choice(hosts),
             'ip': generate_ip(),
-            'datacenter': random.choice(DATACENTERS)
+            'datacenter': random.choice(datacenters)
         },
         'trace': {
             'id': generate_trace_id(),
@@ -266,6 +377,8 @@ def generate_access_log() -> Dict[str, Any]:
     status_code = weighted_choice(HTTP_STATUS_CODES)
     method = random.choice(HTTP_METHODS)
     path = random.choice(ENDPOINTS).replace('{id}', str(random.randint(1, 10000)))
+    environments = get_environments()
+    hosts = get_hosts()
 
     # Latency based on status code
     if status_code >= 500:
@@ -305,11 +418,11 @@ def generate_access_log() -> Dict[str, Any]:
             }
         },
         'service': {
-            'name': random.choice(SERVICES),
-            'environment': random.choice(ENVIRONMENTS)
+            'name': random.choice(get_services()),
+            'environment': random.choice(environments)
         },
         'host': {
-            'name': random.choice(HOSTS)
+            'name': random.choice(hosts)
         },
         'trace': {
             'id': generate_trace_id()
@@ -319,8 +432,11 @@ def generate_access_log() -> Dict[str, Any]:
 
 def generate_metric_log() -> Dict[str, Any]:
     """Generate a metric/system log entry."""
-    service = random.choice(SERVICES)
-    host = random.choice(HOSTS)
+    service = random.choice(get_services())
+    hosts = get_hosts()
+    host = random.choice(hosts)
+    datacenters = get_datacenters()
+    environments = get_environments()
 
     cpu_usage = random.uniform(0, 100)
     memory_usage = random.uniform(30, 95)
@@ -343,11 +459,11 @@ def generate_metric_log() -> Dict[str, Any]:
         'message': message,
         'service': {
             'name': service,
-            'environment': random.choice(ENVIRONMENTS)
+            'environment': random.choice(environments)
         },
         'host': {
             'name': host,
-            'datacenter': random.choice(DATACENTERS)
+            'datacenter': random.choice(datacenters)
         },
         'system': {
             'cpu': {
@@ -408,25 +524,150 @@ def log_generator() -> Generator[Dict[str, Any], None, None]:
 # ELASTICSEARCH CLIENT
 # ============================================================================
 
-def create_es_client() -> Elasticsearch:
-    """Create and configure Elasticsearch client."""
-    return Elasticsearch(
-        [ES_HOST],
-        basic_auth=(ES_USER, ES_PASSWORD),
-        verify_certs=ES_VERIFY_CERTS,
-        ssl_show_warn=False,
-        request_timeout=120,
-        max_retries=3,
-        retry_on_timeout=True
-    )
+class ElasticsearchManager:
+    """Manages Elasticsearch connections with multi-host support and auto-reconnect."""
+
+    def __init__(self):
+        self.client: Optional[Elasticsearch] = None
+        self.es_version: Optional[str] = None
+        self.es_major_version: int = 0
+        self._last_connect_attempt: float = 0
+        self._reconnect_delay: float = 5.0
+
+    def _get_hosts(self) -> List[str]:
+        """Get list of Elasticsearch hosts from configuration."""
+        # Try ES_HOSTS first (comma-separated list)
+        hosts = config.get_list('elasticsearch.hosts', env_key='ES_HOSTS')
+        if hosts:
+            return hosts
+
+        # Fall back to single ES_HOST
+        single_host = config.get('elasticsearch.host', 'https://es01:9200', env_key='ES_HOST')
+        return [single_host]
+
+    def _get_auth(self) -> Dict[str, Any]:
+        """Get authentication configuration."""
+        auth_config = {}
+
+        # Check for API key first (preferred for ES 8+)
+        api_key = config.get('elasticsearch.api_key', env_key='ES_API_KEY')
+        if api_key:
+            auth_config['api_key'] = api_key
+            return auth_config
+
+        # Fall back to basic auth
+        user = config.get('elasticsearch.user', 'elastic', env_key='ES_USER')
+        password = config.get('elasticsearch.password', 'changeme', env_key='ES_PASSWORD')
+        auth_config['basic_auth'] = (user, password)
+
+        return auth_config
+
+    def _get_ssl_config(self) -> Dict[str, Any]:
+        """Get SSL/TLS configuration."""
+        ssl_config = {}
+
+        verify_certs = config.get_bool('elasticsearch.verify_certs', False, env_key='ES_VERIFY_CERTS')
+        ssl_config['verify_certs'] = verify_certs
+        ssl_config['ssl_show_warn'] = False
+
+        ca_certs = config.get('elasticsearch.ca_certs', env_key='ES_CA_CERTS')
+        if ca_certs:
+            ssl_config['ca_certs'] = ca_certs
+
+        return ssl_config
+
+    def connect(self) -> bool:
+        """Establish connection to Elasticsearch cluster."""
+        hosts = self._get_hosts()
+        auth_config = self._get_auth()
+        ssl_config = self._get_ssl_config()
+
+        logger.info(f"Connecting to Elasticsearch hosts: {hosts}")
+
+        try:
+            self.client = Elasticsearch(
+                hosts,
+                **auth_config,
+                **ssl_config,
+                request_timeout=120,
+                max_retries=3,
+                retry_on_timeout=True,
+                sniff_on_start=False,  # Disable sniffing for container environments
+                sniff_on_node_failure=False
+            )
+
+            # Verify connection and get version
+            info = self.client.info()
+            self.es_version = info['version']['number']
+            self.es_major_version = int(self.es_version.split('.')[0])
+
+            logger.info(f"Connected to Elasticsearch {self.es_version}")
+
+            # Log compatibility info
+            if self.es_major_version >= 9:
+                logger.info("Running in Elasticsearch 9.x compatibility mode")
+            elif self.es_major_version >= 8:
+                logger.info("Running in Elasticsearch 8.x compatibility mode")
+
+            return True
+
+        except AuthenticationException as e:
+            logger.error(f"Authentication failed: {e}")
+            return False
+        except (ConnectionError, TransportError) as e:
+            logger.error(f"Connection failed: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during connection: {e}")
+            return False
+
+    def ensure_connected(self) -> bool:
+        """Ensure client is connected, reconnect if necessary."""
+        if self.client is None:
+            return self.connect()
+
+        try:
+            self.client.ping()
+            return True
+        except Exception:
+            logger.warning("Lost connection to Elasticsearch, reconnecting...")
+            return self.connect()
+
+    def wait_for_ready(self, max_retries: int = 30, retry_delay: float = 5.0) -> bool:
+        """Wait for Elasticsearch to be ready."""
+        for i in range(max_retries):
+            if shutdown_requested:
+                return False
+
+            if self.connect():
+                return True
+
+            if i < max_retries - 1:
+                logger.warning(f"Waiting for Elasticsearch... ({i+1}/{max_retries})")
+                time.sleep(retry_delay)
+
+        logger.error("Could not connect to Elasticsearch after all retries")
+        return False
+
+    def get_client(self) -> Optional[Elasticsearch]:
+        """Get the Elasticsearch client, ensuring connection."""
+        if self.ensure_connected():
+            return self.client
+        return None
 
 
-def ensure_index_template(es: Elasticsearch):
+def ensure_index_template(es_manager: ElasticsearchManager):
     """Create index template if it doesn't exist."""
-    template_name = f'{INDEX_PREFIX}-template'
+    es = es_manager.get_client()
+    if not es:
+        return
 
+    index_prefix = config.get('elasticsearch.index_prefix', 'logs', env_key='INDEX_PREFIX')
+    template_name = f'{index_prefix}-template'
+
+    # Template body - compatible with ES 8.x and 9.x
     template_body = {
-        'index_patterns': [f'{INDEX_PREFIX}-*'],
+        'index_patterns': [f'{index_prefix}-*'],
         'template': {
             'settings': {
                 'number_of_shards': 1,
@@ -515,10 +756,16 @@ def ensure_index_template(es: Elasticsearch):
         logger.warning(f"Could not create index template: {e}")
 
 
-def bulk_index_logs(es: Elasticsearch, logs: List[Dict[str, Any]]) -> int:
-    """Bulk index logs into Elasticsearch."""
+def bulk_index_logs(es_manager: ElasticsearchManager, logs: List[Dict[str, Any]]) -> int:
+    """Bulk index logs into Elasticsearch with retry logic."""
+    es = es_manager.get_client()
+    if not es:
+        logger.error("No Elasticsearch connection available")
+        return 0
+
+    index_prefix = config.get('elasticsearch.index_prefix', 'logs', env_key='INDEX_PREFIX')
     today = datetime.now(timezone.utc).strftime('%Y.%m.%d')
-    index_name = f'{INDEX_PREFIX}-{today}'
+    index_name = f'{index_prefix}-{today}'
 
     actions = [
         {
@@ -528,42 +775,56 @@ def bulk_index_logs(es: Elasticsearch, logs: List[Dict[str, Any]]) -> int:
         for log in logs
     ]
 
-    try:
-        # Use es.options() to set transport options (avoids deprecation warning)
-        es_with_timeout = es.options(request_timeout=120)
-        success, failed = helpers.bulk(
-            es_with_timeout,
-            actions,
-            chunk_size=500,
-            raise_on_error=False,
-            raise_on_exception=False
-        )
-        return success
-    except Exception as e:
-        logger.error(f"Bulk indexing error: {e}")
-        return 0
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Use es.options() for ES 8+ compatible request options
+            es_with_timeout = es.options(request_timeout=120)
+            success, failed = helpers.bulk(
+                es_with_timeout,
+                actions,
+                chunk_size=500,
+                raise_on_error=False,
+                raise_on_exception=False
+            )
+
+            if failed:
+                logger.warning(f"Some documents failed to index: {len(failed)} failures")
+
+            return success
+
+        except (ConnectionError, TransportError) as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Bulk indexing failed, retrying ({attempt + 1}/{max_retries}): {e}")
+                time.sleep(2 ** attempt)  # Exponential backoff
+                es_manager.ensure_connected()
+            else:
+                logger.error(f"Bulk indexing error after {max_retries} attempts: {e}")
+                return 0
+        except Exception as e:
+            logger.error(f"Unexpected bulk indexing error: {e}")
+            return 0
+
+    return 0
 
 
 # ============================================================================
 # MAIN
 # ============================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description='Inject logs into Elasticsearch')
-    parser.add_argument('--rate', type=int, default=INJECTION_RATE,
-                       help=f'Logs per second (default: {INJECTION_RATE})')
-    parser.add_argument('--duration', type=int, default=0,
-                       help='Duration in seconds (0 = infinite)')
-    parser.add_argument('--batch-size', type=int, default=BATCH_SIZE,
-                       help=f'Batch size for bulk indexing (default: {BATCH_SIZE})')
-    args = parser.parse_args()
+def print_config_info(args):
+    """Print current configuration info."""
+    index_prefix = config.get('elasticsearch.index_prefix', 'logs', env_key='INDEX_PREFIX')
+    hosts = config.get_list('elasticsearch.hosts', env_key='ES_HOSTS')
+    if not hosts:
+        hosts = [config.get('elasticsearch.host', 'https://es01:9200', env_key='ES_HOST')]
 
     logger.info("=" * 60)
     logger.info("Log Injector Starting")
     logger.info("=" * 60)
-    logger.info(f"ES Host: {ES_HOST}")
+    logger.info(f"ES Hosts: {hosts}")
     logger.info(f"Injection Rate: {args.rate} logs/second")
-    logger.info(f"Index Prefix: {INDEX_PREFIX}")
+    logger.info(f"Index Prefix: {index_prefix}")
     logger.info(f"Batch Size: {args.batch_size}")
     if args.duration:
         logger.info(f"Duration: {args.duration} seconds")
@@ -571,33 +832,45 @@ def main():
         logger.info("Duration: Infinite (Ctrl+C to stop)")
     logger.info("=" * 60)
 
-    # Connect to Elasticsearch
-    logger.info("Connecting to Elasticsearch...")
-    es = create_es_client()
 
-    # Wait for ES to be ready
-    max_retries = 30
-    for i in range(max_retries):
-        try:
-            info = es.info()
-            logger.info(f"Connected to Elasticsearch {info['version']['number']}")
-            break
-        except (ConnectionError, TransportError) as e:
-            if i < max_retries - 1:
-                logger.warning(f"Waiting for Elasticsearch... ({i+1}/{max_retries})")
-                time.sleep(5)
-            else:
-                logger.error(f"Could not connect to Elasticsearch: {e}")
-                sys.exit(1)
+def main():
+    global config
+
+    parser = argparse.ArgumentParser(description='Inject logs into Elasticsearch')
+    parser.add_argument('--config', '-c', type=str,
+                       help='Path to YAML configuration file')
+    parser.add_argument('--rate', type=int,
+                       default=config.get_int('injection.rate', 10, env_key='INJECTION_RATE'),
+                       help='Logs per second (default: 10)')
+    parser.add_argument('--duration', type=int, default=0,
+                       help='Duration in seconds (0 = infinite)')
+    parser.add_argument('--batch-size', type=int,
+                       default=config.get_int('injection.batch_size', 100, env_key='BATCH_SIZE'),
+                       help='Batch size for bulk indexing (default: 100)')
+    args = parser.parse_args()
+
+    # Reload config if config file specified
+    if args.config:
+        config = Config(args.config)
+
+    print_config_info(args)
+
+    # Create ES manager and connect
+    es_manager = ElasticsearchManager()
+
+    logger.info("Connecting to Elasticsearch...")
+    if not es_manager.wait_for_ready():
+        sys.exit(1)
 
     # Create index template
-    ensure_index_template(es)
+    ensure_index_template(es_manager)
 
     # Start injection
     logger.info("Starting log injection...")
     start_time = time.time()
     total_indexed = 0
     batch: List[Dict[str, Any]] = []
+    last_status_time = start_time
 
     interval = 1.0 / args.rate if args.rate > 0 else 0.1
     gen = log_generator()
@@ -610,17 +883,25 @@ def main():
                 break
 
             # Generate log
-            log = next(gen)
+            try:
+                log = next(gen)
+            except StopIteration:
+                break
+
             batch.append(log)
 
             # Index when batch is full
             if len(batch) >= args.batch_size:
-                indexed = bulk_index_logs(es, batch)
+                indexed = bulk_index_logs(es_manager, batch)
                 total_indexed += indexed
 
-                elapsed = time.time() - start_time
-                rate = total_indexed / elapsed if elapsed > 0 else 0
-                logger.info(f"Indexed {total_indexed} logs ({rate:.1f} logs/sec)")
+                # Log status periodically (every 10 seconds)
+                current_time = time.time()
+                if current_time - last_status_time >= 10:
+                    elapsed = current_time - start_time
+                    rate = total_indexed / elapsed if elapsed > 0 else 0
+                    logger.info(f"Indexed {total_indexed} logs ({rate:.1f} logs/sec)")
+                    last_status_time = current_time
 
                 batch = []
 
@@ -633,7 +914,7 @@ def main():
     finally:
         # Index remaining logs
         if batch:
-            indexed = bulk_index_logs(es, batch)
+            indexed = bulk_index_logs(es_manager, batch)
             total_indexed += indexed
 
         elapsed = time.time() - start_time

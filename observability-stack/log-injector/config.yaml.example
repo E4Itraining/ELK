@@ -1,0 +1,103 @@
+# ============================================================================
+# Log Injector Configuration
+# ============================================================================
+# This file provides configuration for the log injector.
+# All settings can also be overridden via environment variables.
+# Environment variables take precedence over config file values.
+# ============================================================================
+
+# Elasticsearch Connection Settings
+elasticsearch:
+  # Multiple hosts for high availability (comma-separated in env var ES_HOSTS)
+  hosts:
+    - https://es01:9200
+    - https://es02:9200
+    - https://es03:9200
+
+  # Single host fallback (env var: ES_HOST)
+  # host: https://es01:9200
+
+  # Authentication - Basic Auth (env vars: ES_USER, ES_PASSWORD)
+  user: elastic
+  password: changeme
+
+  # Authentication - API Key (env var: ES_API_KEY)
+  # Preferred for Elasticsearch 8.x and 9.x
+  # api_key: "your-api-key-here"
+
+  # SSL/TLS Settings
+  verify_certs: false  # env var: ES_VERIFY_CERTS
+  # ca_certs: /path/to/ca.crt  # env var: ES_CA_CERTS
+
+  # Index Settings
+  index_prefix: logs  # env var: INDEX_PREFIX
+
+# Injection Settings
+injection:
+  # Logs per second (env var: INJECTION_RATE)
+  rate: 10
+
+  # Batch size for bulk indexing (env var: BATCH_SIZE)
+  batch_size: 100
+
+# Log Generators Configuration
+# Customize the simulated log data
+generators:
+  # List of service names to simulate
+  services:
+    - api-gateway
+    - auth-service
+    - user-service
+    - order-service
+    - payment-service
+    - notification-service
+    - inventory-service
+    - search-service
+    - recommendation-engine
+    - analytics-service
+
+  # Environments for log entries
+  environments:
+    - production
+    - staging
+    - development
+
+  # Datacenters for log entries
+  datacenters:
+    - dc-us-east-1
+    - dc-us-west-2
+    - dc-eu-west-1
+    - dc-ap-south-1
+
+  # Host names to simulate (or use host_count for auto-generation)
+  # hosts:
+  #   - web-server-01
+  #   - web-server-02
+  #   - db-server-01
+
+  # Number of hosts to auto-generate (used if 'hosts' is not specified)
+  host_count: 20
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+#
+# 1. Using environment variables (Docker/Kubernetes):
+#    docker run -e ES_HOSTS="https://es01:9200,https://es02:9200" \
+#               -e ES_PASSWORD="mysecretpassword" \
+#               -e INJECTION_RATE=50 \
+#               log-injector
+#
+# 2. Using config file:
+#    python log_injector.py --config /path/to/config.yaml
+#
+# 3. Using both (env vars override config file):
+#    CONFIG_FILE=/path/to/config.yaml ES_PASSWORD="override" python log_injector.py
+#
+# 4. Continuous injection (default):
+#    python log_injector.py --rate 100
+#
+# 5. Time-limited injection:
+#    python log_injector.py --rate 100 --duration 3600
+#
+# ============================================================================
