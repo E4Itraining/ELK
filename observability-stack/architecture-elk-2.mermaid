@@ -1,0 +1,98 @@
+flowchart TB
+    subgraph CLUSTER_DATA["🗄️ CLUSTER DATA"]
+        direction TB
+        
+        subgraph kafka_cluster["Kafka Cluster"]
+            K1[("Kafka 1")]
+            K2[("Kafka 2")]
+            K3[("Kafka 3")]
+        end
+        
+        subgraph logstash_data["Logstash Fleet"]
+            LS1["Logstash 1"]
+            LS2["Logstash 2"]
+            LS3["Logstash 3"]
+        end
+        
+        subgraph elastic_data["Elasticsearch Cluster"]
+            ES1[("Elasticsearch 1")]
+            ES2[("Elasticsearch 2")]
+            ES3[("Elasticsearch 3")]
+        end
+        
+        KIB_DATA["Kibana"]
+        
+        %% Kafka vers Logstash
+        K1 -->|"TCP:9092"| LS1
+        K2 -->|"TCP:9092"| LS2
+        K3 -->|"TCP:9092"| LS3
+        
+        %% Logstash vers Elasticsearch
+        LS1 -->|"HTTPS:9200"| ES1
+        LS1 -->|"HTTPS:9200"| ES2
+        LS1 -->|"HTTPS:9200"| ES3
+        
+        LS2 -->|"HTTPS:9200"| ES1
+        LS2 -->|"HTTPS:9200"| ES2
+        LS2 -->|"HTTPS:9200"| ES3
+        
+        LS3 -->|"HTTPS:9200"| ES1
+        LS3 -->|"HTTPS:9200"| ES2
+        LS3 -->|"HTTPS:9200"| ES3
+        
+        %% Réplication Elasticsearch
+        ES1 <-->|"TCP:9300"| ES2
+        ES2 <-->|"TCP:9300"| ES3
+        ES1 <-->|"TCP:9300"| ES3
+        
+        %% Kibana vers Elasticsearch
+        ES1 -->|"HTTPS:9200"| KIB_DATA
+        ES2 -->|"HTTPS:9200"| KIB_DATA
+        ES3 -->|"HTTPS:9200"| KIB_DATA
+    end
+    
+    subgraph CLUSTER_INFRA["🔧 CLUSTER INFRA"]
+        direction TB
+        
+        LS_INFRA["Logstash"]
+        ES_INFRA[("Elasticsearch")]
+        KIB_INFRA["Kibana"]
+        
+        LS_INFRA -->|"HTTPS:9200"| ES_INFRA
+        ES_INFRA -->|"HTTPS:9200"| KIB_INFRA
+    end
+    
+    %% Flux monitoring du cluster DATA vers cluster INFRA
+    K1 -.->|"Filebeat TCP:5044"| LS_INFRA
+    K2 -.->|"Filebeat TCP:5044"| LS_INFRA
+    K3 -.->|"Filebeat TCP:5044"| LS_INFRA
+    LS1 -.->|"Filebeat TCP:5044"| LS_INFRA
+    LS2 -.->|"Filebeat TCP:5044"| LS_INFRA
+    LS3 -.->|"Filebeat TCP:5044"| LS_INFRA
+    ES1 -.->|"Metricbeat TCP:5044"| LS_INFRA
+    ES2 -.->|"Metricbeat TCP:5044"| LS_INFRA
+    ES3 -.->|"Metricbeat TCP:5044"| LS_INFRA
+    KIB_DATA -.->|"Filebeat TCP:5044"| LS_INFRA
+    
+    style CLUSTER_DATA fill:#1a1a2e,stroke:#4a90d9,stroke-width:2px
+    style CLUSTER_INFRA fill:#1a1a2e,stroke:#e94560,stroke-width:2px
+    style kafka_cluster fill:#2d2d44,stroke:#ff9f43
+    style logstash_data fill:#2d2d44,stroke:#26de81
+    style elastic_data fill:#2d2d44,stroke:#4a90d9
+    
+    style K1 fill:#ff9f43,color:#000
+    style K2 fill:#ff9f43,color:#000
+    style K3 fill:#ff9f43,color:#000
+    
+    style LS1 fill:#26de81,color:#000
+    style LS2 fill:#26de81,color:#000
+    style LS3 fill:#26de81,color:#000
+    style LS_INFRA fill:#26de81,color:#000
+    
+    style ES1 fill:#4a90d9,color:#fff
+    style ES2 fill:#4a90d9,color:#fff
+    style ES3 fill:#4a90d9,color:#fff
+    style ES_INFRA fill:#4a90d9,color:#fff
+    
+    style KIB_DATA fill:#e94560,color:#fff
+    style KIB_INFRA fill:#e94560,color:#fff
