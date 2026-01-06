@@ -1,8 +1,8 @@
 # ============================================================================
 # LOG INJECTOR DOCKERFILE
 # ============================================================================
-# Lightweight Python log injector for Elasticsearch 8.x and 9.x
-# Supports multi-host configuration and continuous injection
+# Python log injector for Elasticsearch and Kafka
+# Supports multi-host configuration, topic routing, and log enrichment
 # ============================================================================
 
 FROM python:3.11-slim
@@ -32,13 +32,19 @@ ENV ES_HOSTS="" \
     ES_PASSWORD="changeme" \
     ES_API_KEY="" \
     ES_VERIFY_CERTS="false" \
-    ES_CA_CERTS="" \
-    # Injection Settings
-    INJECTION_RATE="10" \
+    ES_CA_CERTS=""
+
+# Kafka Connection
+ENV KAFKA_BOOTSTRAP_SERVERS="kafka01:9092,kafka02:9092,kafka03:9092"
+
+# Injection Settings
+ENV INJECTION_RATE="10" \
     BATCH_SIZE="100" \
     INDEX_PREFIX="logs" \
-    # Configuration File
-    CONFIG_FILE=""
+    INJECTION_TARGET="elasticsearch"
+
+# Configuration File
+ENV CONFIG_FILE=""
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

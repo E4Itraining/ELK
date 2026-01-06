@@ -1,7 +1,7 @@
 # ============================================================================
 # Log Injector Configuration
 # ============================================================================
-# This file provides configuration for the log injector.
+# This file provides configuration for the log injector with Kafka support.
 # All settings can also be overridden via environment variables.
 # Environment variables take precedence over config file values.
 # ============================================================================
@@ -32,7 +32,103 @@ elasticsearch:
   # Index Settings
   index_prefix: logs  # env var: INDEX_PREFIX
 
+# ============================================================================
+# Kafka Configuration
+# ============================================================================
+kafka:
+  # Bootstrap servers (env var: KAFKA_BOOTSTRAP_SERVERS)
+  bootstrap_servers:
+    - kafka01:9092
+    - kafka02:9092
+    - kafka03:9092
+
+  # Producer settings
+  acks: all              # 'all', '1', or '0'
+  retries: 3
+  batch_size: 16384      # bytes
+  linger_ms: 10          # milliseconds to wait for batching
+  compression: gzip      # gzip, snappy, lz4, zstd, or none
+  max_request_size: 1048576
+
+  # Partition key field (dot notation for nested fields)
+  partition_key_field: service.name
+
+  # Security settings (optional)
+  # security_protocol: SASL_SSL
+  # sasl_mechanism: PLAIN
+  # sasl_username: your-username
+  # sasl_password: your-password
+
+  # ============================================================================
+  # Topic Routing Configuration
+  # ============================================================================
+  routing:
+    # Routing strategy determines how logs are routed to Kafka topics
+    # Options:
+    #   - static: All logs go to default_topic
+    #   - by_level: Route by log level (ERROR/FATAL -> logs-errors, etc.)
+    #   - by_service: Route by service name (logs-{service_name})
+    #   - by_datacenter: Route by datacenter (logs-{datacenter})
+    #   - by_log_type: Route by log type (logs-application, logs-access, logs-metrics)
+    #   - by_environment: Route by environment (logs-prod, logs-staging, logs-dev)
+    #   - custom: Use custom routing rules defined below
+    strategy: by_level
+
+    # Default topic for unmatched logs
+    default_topic: logs
+
+    # Custom routing rules (used when strategy is 'custom' or as additional rules)
+    # Rules are evaluated in priority order (highest first)
+    rules:
+      # Route critical errors to a separate topic
+      critical_errors:
+        field: level
+        values:
+          FATAL: logs-critical
+          ERROR: logs-errors
+        default_topic: logs
+        priority: 100
+
+      # Route payment service to dedicated topic
+      payment_routing:
+        field: service.name
+        values:
+          payment-service: logs-payments
+          order-service: logs-payments
+        default_topic: logs
+        priority: 90
+
+      # Route by datacenter region
+      datacenter_routing:
+        field: host.datacenter
+        values:
+          dc-us-east-1: logs-us-east
+          dc-us-west-2: logs-us-west
+          dc-eu-west-1: logs-europe
+          dc-ap-south-1: logs-asia
+        default_topic: logs
+        priority: 50
+
+      # Route high-latency requests
+      latency_routing:
+        field: sli.latency_category
+        values:
+          critical: logs-performance-issues
+          very_slow: logs-performance-issues
+        default_topic: logs
+        priority: 80
+
+      # Route SLA breaches to alerts topic
+      sla_breach_routing:
+        field: sla.breach
+        values:
+          "true": logs-sla-breaches
+        default_topic: logs
+        priority: 95
+
+# ============================================================================
 # Injection Settings
+# ============================================================================
 injection:
   # Logs per second (env var: INJECTION_RATE)
   rate: 10
@@ -40,7 +136,39 @@ injection:
   # Batch size for bulk indexing (env var: BATCH_SIZE)
   batch_size: 100
 
+  # Target output (env var: INJECTION_TARGET)
+  # Options: elasticsearch, kafka, both
+  target: both
+
+# ============================================================================
+# Log Enrichment Configuration
+# ============================================================================
+enrichment:
+  # Add business context (transaction ID, customer segment, etc.)
+  business_context: true
+
+  # Add SLA/SLO metadata (tier, breach detection, error budget)
+  sla_metadata: true
+
+  # Add correlation chain for distributed tracing
+  correlation_chain: true
+
+  # Add cost attribution (cost center, team, estimated cost)
+  cost_attribution: true
+
+  # Add security context (auth method, role, IP reputation)
+  # Disabled by default for privacy
+  security_context: false
+
+  # Custom fields to add to all logs
+  custom_fields:
+    injector_version: "2.0.0"
+    # cluster_name: "production-elk"
+    # tenant_id: "acme-corp"
+
+# ============================================================================
 # Log Generators Configuration
+# ============================================================================
 # Customize the simulated log data
 generators:
   # List of service names to simulate
@@ -82,22 +210,61 @@ generators:
 # Usage Examples
 # ============================================================================
 #
-# 1. Using environment variables (Docker/Kubernetes):
-#    docker run -e ES_HOSTS="https://es01:9200,https://es02:9200" \
-#               -e ES_PASSWORD="mysecretpassword" \
-#               -e INJECTION_RATE=50 \
+# 1. Inject to Elasticsearch only (default):
+#    python log_injector.py --target elasticsearch --rate 50
+#
+# 2. Inject to Kafka only with routing by service:
+#    KAFKA_BOOTSTRAP_SERVERS="kafka01:9092,kafka02:9092" \
+#    python log_injector.py --target kafka --config config.yaml
+#
+# 3. Inject to both ES and Kafka:
+#    python log_injector.py --target both --rate 100 --config config.yaml
+#
+# 4. Using environment variables (Docker/Kubernetes):
+#    docker run -e INJECTION_TARGET=both \
+#               -e ES_HOSTS="https://es01:9200,https://es02:9200" \
+#               -e KAFKA_BOOTSTRAP_SERVERS="kafka01:9092,kafka02:9092" \
+#               -e INJECTION_RATE=100 \
 #               log-injector
 #
-# 2. Using config file:
-#    python log_injector.py --config /path/to/config.yaml
+# 5. Disable enrichment for lighter logs:
+#    python log_injector.py --target kafka --no-enrichment
 #
-# 3. Using both (env vars override config file):
-#    CONFIG_FILE=/path/to/config.yaml ES_PASSWORD="override" python log_injector.py
+# 6. Custom routing with config file:
+#    cat <<EOF > my-config.yaml
+#    kafka:
+#      routing:
+#        strategy: custom
+#        rules:
+#          my_rule:
+#            field: level
+#            values:
+#              ERROR: alerts-topic
+#            priority: 100
+#    EOF
+#    python log_injector.py --config my-config.yaml --target kafka
 #
-# 4. Continuous injection (default):
-#    python log_injector.py --rate 100
+# ============================================================================
+# Topic Routing Examples
+# ============================================================================
 #
-# 5. Time-limited injection:
-#    python log_injector.py --rate 100 --duration 3600
+# Strategy: by_level
+# - ERROR/FATAL logs -> logs-errors
+# - WARN logs -> logs-warnings
+# - INFO logs -> logs-info
+# - DEBUG logs -> logs-debug
+#
+# Strategy: by_service
+# - api-gateway logs -> logs-api-gateway
+# - payment-service logs -> logs-payment-service
+#
+# Strategy: by_datacenter
+# - dc-us-east-1 logs -> logs-us-east-1
+# - dc-eu-west-1 logs -> logs-eu-west-1
+#
+# Strategy: by_environment
+# - production logs -> logs-prod
+# - staging logs -> logs-staging
+# - development logs -> logs-dev
 #
 # ============================================================================
