@@ -3,3 +3,6 @@
 elasticsearch>=8.0.0
 urllib3>=2.0.0
 pyyaml>=6.0.0
+
+# Kafka producer support
+kafka-python>=2.0.0

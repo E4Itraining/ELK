@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Log Injector - Generate and inject realistic logs into Elasticsearch
+Log Injector - Generate and inject realistic logs into Elasticsearch and/or Kafka
 
 This script generates realistic log data and injects it into an Elasticsearch
-cluster for testing and demonstration purposes.
+cluster and/or Kafka topics for testing and demonstration purposes.
 
 Features:
-- Multi-host support with automatic failover
+- Multi-host support with automatic failover for Elasticsearch
+- Kafka producer with criteria-based topic routing
 - Compatible with Elasticsearch 8.x and 9.x
 - Configurable via environment variables or YAML config file
 - Continuous injection with automatic reconnection
-- Dynamic host/password configuration
+- Log enrichment with business context, SLA metadata, and correlation IDs
+- Flexible routing rules based on log level, service, datacenter, etc.
 
 Usage:
     python log_injector.py [--config CONFIG_FILE] [--rate LOGS_PER_SECOND] [--duration SECONDS]
@@ -23,6 +25,9 @@ Environment Variables:
     ES_API_KEY: API key for authentication (alternative to user/password)
     ES_VERIFY_CERTS: Verify SSL certificates (true/false)
     ES_CA_CERTS: Path to CA certificate file
+    KAFKA_BOOTSTRAP_SERVERS: Comma-separated Kafka brokers
+    KAFKA_ENABLED: Enable Kafka injection (true/false)
+    INJECTION_TARGET: Target output (elasticsearch, kafka, both)
     INJECTION_RATE: Logs per second
     INDEX_PREFIX: Index name prefix
     CONFIG_FILE: Path to YAML configuration file
@@ -37,15 +42,26 @@ import hashlib
 import argparse
 import signal
 import logging
-from datetime import datetime, timezone
-from typing import Generator, Dict, Any, List, Optional, Union
+import uuid
+from datetime import datetime, timezone, timedelta
+from typing import Generator, Dict, Any, List, Optional, Callable, Tuple
 from pathlib import Path
+from dataclasses import dataclass, field
+from enum import Enum
 
 try:
     import yaml
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
+
+try:
+    from kafka import KafkaProducer
+    from kafka.errors import KafkaError, NoBrokersAvailable
+    KAFKA_AVAILABLE = True
+except ImportError:
+    KAFKA_AVAILABLE = False
+    KafkaProducer = None
 
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch.exceptions import ConnectionError, TransportError, AuthenticationException
@@ -56,6 +72,50 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ENUMS AND DATA CLASSES
+# ============================================================================
+
+class InjectionTarget(Enum):
+    """Output target for log injection."""
+    ELASTICSEARCH = "elasticsearch"
+    KAFKA = "kafka"
+    BOTH = "both"
+
+
+class RoutingStrategy(Enum):
+    """Strategy for routing logs to Kafka topics."""
+    STATIC = "static"           # Single topic for all logs
+    BY_LEVEL = "by_level"       # Route by log level (ERROR → logs-errors)
+    BY_SERVICE = "by_service"   # Route by service name
+    BY_DATACENTER = "by_datacenter"  # Route by datacenter
+    BY_LOG_TYPE = "by_log_type"      # Route by log type (app, access, metric)
+    BY_ENVIRONMENT = "by_environment"  # Route by environment
+    CUSTOM = "custom"           # Custom routing rules
+
+
+@dataclass
+class RoutingRule:
+    """Definition of a routing rule for Kafka topics."""
+    name: str
+    field: str                  # Field to match (e.g., "level", "service.name")
+    values: Dict[str, str]      # Value to topic mapping
+    default_topic: str          # Default if no match
+    priority: int = 0           # Higher priority rules evaluated first
+
+
+@dataclass
+class EnrichmentConfig:
+    """Configuration for log enrichment."""
+    add_business_context: bool = True
+    add_sla_metadata: bool = True
+    add_correlation_chain: bool = True
+    add_cost_attribution: bool = True
+    add_security_context: bool = False
+    custom_fields: Dict[str, Any] = field(default_factory=dict)
+
 
 # ============================================================================
 # CONFIGURATION
@@ -116,6 +176,14 @@ class Config:
         except (ValueError, TypeError):
             return default
 
+    def get_float(self, key: str, default: float = 0.0, env_key: Optional[str] = None) -> float:
+        """Get float configuration value."""
+        value = self.get(key, default, env_key)
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+
     def get_list(self, key: str, default: Optional[List] = None, env_key: Optional[str] = None) -> List:
         """Get list configuration value (comma-separated in env vars)."""
         value = self.get(key, default, env_key)
@@ -126,6 +194,44 @@ class Config:
         if isinstance(value, str):
             return [v.strip() for v in value.split(',') if v.strip()]
         return default or []
+
+    def get_dict(self, key: str, default: Optional[Dict] = None, env_key: Optional[str] = None) -> Dict:
+        """Get dictionary configuration value."""
+        value = self.get(key, default, env_key)
+        if isinstance(value, dict):
+            return value
+        return default or {}
+
+    def get_routing_rules(self) -> List[RoutingRule]:
+        """Parse routing rules from configuration."""
+        rules_config = self.get_dict('kafka.routing.rules', {})
+        rules = []
+
+        for name, rule_data in rules_config.items():
+            if isinstance(rule_data, dict):
+                rules.append(RoutingRule(
+                    name=name,
+                    field=rule_data.get('field', 'level'),
+                    values=rule_data.get('values', {}),
+                    default_topic=rule_data.get('default_topic', 'logs'),
+                    priority=rule_data.get('priority', 0)
+                ))
+
+        # Sort by priority (highest first)
+        rules.sort(key=lambda r: r.priority, reverse=True)
+        return rules
+
+    def get_enrichment_config(self) -> EnrichmentConfig:
+        """Get enrichment configuration."""
+        enrichment = self.get_dict('enrichment', {})
+        return EnrichmentConfig(
+            add_business_context=enrichment.get('business_context', True),
+            add_sla_metadata=enrichment.get('sla_metadata', True),
+            add_correlation_chain=enrichment.get('correlation_chain', True),
+            add_cost_attribution=enrichment.get('cost_attribution', True),
+            add_security_context=enrichment.get('security_context', False),
+            custom_fields=enrichment.get('custom_fields', {})
+        )
 
 
 # Global configuration
@@ -182,6 +288,20 @@ def get_hosts() -> List[str]:
     return [f'host-{i:03d}' for i in range(1, host_count + 1)]
 
 
+# Business context data for enrichment
+CUSTOMER_SEGMENTS = ['enterprise', 'business', 'premium', 'standard', 'trial']
+COST_CENTERS = ['engineering', 'platform', 'infrastructure', 'product', 'analytics']
+TEAMS = ['platform-team', 'api-team', 'payments-team', 'search-team', 'ml-team']
+REGIONS = ['north-america', 'europe', 'asia-pacific', 'latin-america']
+
+# SLA tiers with latency thresholds (ms)
+SLA_TIERS = {
+    'platinum': {'latency_p99': 100, 'availability': 99.99},
+    'gold': {'latency_p99': 250, 'availability': 99.9},
+    'silver': {'latency_p99': 500, 'availability': 99.5},
+    'bronze': {'latency_p99': 1000, 'availability': 99.0}
+}
+
 VERSIONS = ['1.0.0', '1.1.0', '1.2.0', '2.0.0', '2.1.0', '3.0.0']
 
 LOG_LEVELS = {
@@ -218,7 +338,11 @@ ERROR_MESSAGES = [
     'Resource not found',
     'Permission denied',
     'Token expired',
-    'Database connection pool exhausted'
+    'Database connection pool exhausted',
+    'Circuit breaker open',
+    'Upstream service timeout',
+    'Message queue full',
+    'Cache eviction failed'
 ]
 
 INFO_MESSAGES = [
@@ -231,7 +355,10 @@ INFO_MESSAGES = [
     'Cache miss - fetching from database',
     'Background job completed',
     'Health check passed',
-    'Configuration reloaded'
+    'Configuration reloaded',
+    'Connection pool initialized',
+    'Feature flag evaluated',
+    'Audit log recorded'
 ]
 
 DEBUG_MESSAGES = [
@@ -242,7 +369,9 @@ DEBUG_MESSAGES = [
     'Loading configuration from environment',
     'Establishing database connection',
     'Parsing JSON payload',
-    'Computing recommendation scores'
+    'Computing recommendation scores',
+    'Cache key generated',
+    'Transaction started'
 ]
 
 USER_AGENTS = [
@@ -270,13 +399,23 @@ def weighted_choice(choices: Dict[Any, int]) -> Any:
 
 
 def generate_trace_id() -> str:
-    """Generate a random trace ID."""
-    return hashlib.md5(str(random.random()).encode()).hexdigest()[:32]
+    """Generate a random trace ID (W3C format)."""
+    return uuid.uuid4().hex
 
 
 def generate_span_id() -> str:
     """Generate a random span ID."""
-    return hashlib.md5(str(random.random()).encode()).hexdigest()[:16]
+    return uuid.uuid4().hex[:16]
+
+
+def generate_correlation_id() -> str:
+    """Generate a correlation ID for request chains."""
+    return f"corr-{uuid.uuid4().hex[:12]}"
+
+
+def generate_transaction_id() -> str:
+    """Generate a business transaction ID."""
+    return f"txn-{uuid.uuid4().hex[:8].upper()}"
 
 
 def generate_ip() -> str:
@@ -294,6 +433,191 @@ def generate_log_message(level: str) -> str:
         return random.choice(INFO_MESSAGES)
 
 
+# ============================================================================
+# LOG ENRICHMENT
+# ============================================================================
+
+class LogEnricher:
+    """Enriches log entries with additional context and metadata."""
+
+    def __init__(self, config: EnrichmentConfig):
+        self.config = config
+        self._correlation_chains: Dict[str, List[str]] = {}  # trace_id -> span_ids
+
+    def enrich(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply all configured enrichments to a log entry."""
+        enriched = log.copy()
+
+        if self.config.add_business_context:
+            enriched = self._add_business_context(enriched)
+
+        if self.config.add_sla_metadata:
+            enriched = self._add_sla_metadata(enriched)
+
+        if self.config.add_correlation_chain:
+            enriched = self._add_correlation_chain(enriched)
+
+        if self.config.add_cost_attribution:
+            enriched = self._add_cost_attribution(enriched)
+
+        if self.config.add_security_context:
+            enriched = self._add_security_context(enriched)
+
+        # Add custom fields
+        if self.config.custom_fields:
+            enriched['custom'] = self.config.custom_fields.copy()
+
+        # Add enrichment metadata
+        enriched['_enrichment'] = {
+            'version': '1.0',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'enricher': 'log-injector'
+        }
+
+        return enriched
+
+    def _add_business_context(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Add business context to the log."""
+        log['business'] = {
+            'transaction_id': generate_transaction_id(),
+            'customer_segment': random.choice(CUSTOMER_SEGMENTS),
+            'region': random.choice(REGIONS),
+            'channel': random.choice(['web', 'mobile', 'api', 'partner']),
+            'feature_flags': {
+                'new_checkout': random.choice([True, False]),
+                'ab_test_variant': random.choice(['control', 'variant_a', 'variant_b'])
+            }
+        }
+
+        # Add order value for order-related services
+        service_name = log.get('service', {}).get('name', '')
+        if 'order' in service_name or 'payment' in service_name:
+            log['business']['order_value'] = round(random.uniform(10, 1000), 2)
+            log['business']['currency'] = random.choice(['USD', 'EUR', 'GBP'])
+
+        return log
+
+    def _add_sla_metadata(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Add SLA/SLO metadata to the log."""
+        sla_tier = random.choice(list(SLA_TIERS.keys()))
+        sla_config = SLA_TIERS[sla_tier]
+
+        # Check if latency exceeds SLA
+        latency = log.get('http', {}).get('response', {}).get('latency_ms', 0)
+        sla_breach = latency > sla_config['latency_p99'] if latency else False
+
+        log['sla'] = {
+            'tier': sla_tier,
+            'latency_budget_ms': sla_config['latency_p99'],
+            'availability_target': sla_config['availability'],
+            'breach': sla_breach,
+            'remaining_budget_ms': max(0, sla_config['latency_p99'] - latency) if latency else None
+        }
+
+        # Add SLI indicators
+        log['sli'] = {
+            'latency_category': self._categorize_latency(latency),
+            'success': log.get('http', {}).get('response', {}).get('status_code', 200) < 500,
+            'error_budget_impact': 1 if sla_breach else 0
+        }
+
+        return log
+
+    def _categorize_latency(self, latency_ms: int) -> str:
+        """Categorize latency into buckets."""
+        if not latency_ms:
+            return 'unknown'
+        if latency_ms < 50:
+            return 'fast'
+        elif latency_ms < 200:
+            return 'normal'
+        elif latency_ms < 500:
+            return 'slow'
+        elif latency_ms < 2000:
+            return 'very_slow'
+        else:
+            return 'critical'
+
+    def _add_correlation_chain(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Add correlation chain for distributed tracing."""
+        trace_id = log.get('trace', {}).get('id')
+        if not trace_id:
+            return log
+
+        # Simulate request chain (parent/child relationships)
+        if trace_id not in self._correlation_chains:
+            self._correlation_chains[trace_id] = []
+
+        chain = self._correlation_chains[trace_id]
+        current_span = log.get('trace', {}).get('span_id')
+
+        log['correlation'] = {
+            'id': generate_correlation_id(),
+            'chain_depth': len(chain),
+            'parent_span_id': chain[-1] if chain else None,
+            'root_span_id': chain[0] if chain else current_span,
+            'is_root': len(chain) == 0
+        }
+
+        # Add current span to chain (limit chain length)
+        if len(chain) < 10 and current_span:
+            chain.append(current_span)
+
+        # Clean up old chains periodically
+        if len(self._correlation_chains) > 1000:
+            # Keep only recent chains
+            keys_to_remove = list(self._correlation_chains.keys())[:-500]
+            for key in keys_to_remove:
+                del self._correlation_chains[key]
+
+        return log
+
+    def _add_cost_attribution(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Add cost attribution metadata."""
+        service_name = log.get('service', {}).get('name', 'unknown')
+
+        # Map services to cost centers
+        service_to_cost_center = {
+            'api-gateway': 'platform',
+            'auth-service': 'platform',
+            'user-service': 'product',
+            'order-service': 'product',
+            'payment-service': 'product',
+            'notification-service': 'platform',
+            'inventory-service': 'product',
+            'search-service': 'analytics',
+            'recommendation-engine': 'analytics',
+            'analytics-service': 'analytics'
+        }
+
+        log['cost'] = {
+            'center': service_to_cost_center.get(service_name, 'engineering'),
+            'team': random.choice(TEAMS),
+            'project': f"proj-{random.randint(100, 999)}",
+            'estimated_compute_cost': round(random.uniform(0.0001, 0.01), 6),
+            'resource_tier': random.choice(['standard', 'compute-optimized', 'memory-optimized'])
+        }
+
+        return log
+
+    def _add_security_context(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        """Add security context to the log."""
+        log['security'] = {
+            'authenticated': random.choice([True, True, True, False]),  # 75% authenticated
+            'auth_method': random.choice(['jwt', 'oauth2', 'api_key', 'session']),
+            'user_role': random.choice(['admin', 'user', 'service', 'anonymous']),
+            'ip_reputation': random.choice(['trusted', 'unknown', 'suspicious']),
+            'geo_risk': random.choice(['low', 'medium', 'high']),
+            'session_age_minutes': random.randint(0, 480)
+        }
+
+        return log
+
+
+# ============================================================================
+# LOG GENERATORS
+# ============================================================================
+
 def generate_application_log() -> Dict[str, Any]:
     """Generate a realistic application log entry."""
     level = weighted_choice(LOG_LEVELS)
@@ -305,6 +629,7 @@ def generate_application_log() -> Dict[str, Any]:
     log = {
         '@timestamp': datetime.now(timezone.utc).isoformat(),
         'level': level,
+        'log_type': 'application',
         'logger': f'{service}.{random.choice(["main", "handler", "service", "repository"])}',
         'message': generate_log_message(level),
         'service': {
@@ -353,7 +678,8 @@ def generate_application_log() -> Dict[str, Any]:
         log['error'] = {
             'type': random.choice([
                 'ConnectionError', 'TimeoutError', 'ValidationError',
-                'AuthenticationError', 'PermissionError', 'DatabaseError'
+                'AuthenticationError', 'PermissionError', 'DatabaseError',
+                'CircuitBreakerOpen', 'RateLimitExceeded', 'ServiceUnavailable'
             ]),
             'message': log['message'],
             'stack_trace': f"at {service}.Handler.process(Handler.java:{random.randint(50, 500)})\n" +
@@ -507,7 +833,7 @@ def generate_metric_log() -> Dict[str, Any]:
     }
 
 
-def log_generator() -> Generator[Dict[str, Any], None, None]:
+def log_generator(enricher: Optional[LogEnricher] = None) -> Generator[Dict[str, Any], None, None]:
     """Generate a continuous stream of log entries."""
     generators = [
         (generate_application_log, 60),  # 60% application logs
@@ -517,7 +843,245 @@ def log_generator() -> Generator[Dict[str, Any], None, None]:
 
     while not shutdown_requested:
         gen_func = weighted_choice({g[0]: g[1] for g in generators})
-        yield gen_func()
+        log = gen_func()
+
+        if enricher:
+            log = enricher.enrich(log)
+
+        yield log
+
+
+# ============================================================================
+# KAFKA MANAGER
+# ============================================================================
+
+class KafkaManager:
+    """Manages Kafka producer with topic routing based on criteria."""
+
+    def __init__(self):
+        self.producer: Optional[KafkaProducer] = None
+        self.routing_rules: List[RoutingRule] = []
+        self.default_topic: str = 'logs'
+        self.routing_strategy: RoutingStrategy = RoutingStrategy.STATIC
+        self._topic_stats: Dict[str, int] = {}
+
+    def _get_bootstrap_servers(self) -> List[str]:
+        """Get Kafka bootstrap servers from configuration."""
+        servers = config.get_list('kafka.bootstrap_servers',
+                                  env_key='KAFKA_BOOTSTRAP_SERVERS')
+        if servers:
+            return servers
+        return ['kafka01:9092', 'kafka02:9092', 'kafka03:9092']
+
+    def connect(self) -> bool:
+        """Establish connection to Kafka cluster."""
+        if not KAFKA_AVAILABLE:
+            logger.error("kafka-python not installed. Install with: pip install kafka-python")
+            return False
+
+        bootstrap_servers = self._get_bootstrap_servers()
+        logger.info(f"Connecting to Kafka brokers: {bootstrap_servers}")
+
+        try:
+            # Configure producer
+            producer_config = {
+                'bootstrap_servers': bootstrap_servers,
+                'value_serializer': lambda v: json.dumps(v).encode('utf-8'),
+                'key_serializer': lambda k: k.encode('utf-8') if k else None,
+                'acks': config.get('kafka.acks', 'all'),
+                'retries': config.get_int('kafka.retries', 3),
+                'batch_size': config.get_int('kafka.batch_size', 16384),
+                'linger_ms': config.get_int('kafka.linger_ms', 10),
+                'compression_type': config.get('kafka.compression', 'gzip'),
+                'max_request_size': config.get_int('kafka.max_request_size', 1048576),
+            }
+
+            # Add security config if present
+            security_protocol = config.get('kafka.security_protocol')
+            if security_protocol:
+                producer_config['security_protocol'] = security_protocol
+
+            sasl_mechanism = config.get('kafka.sasl_mechanism')
+            if sasl_mechanism:
+                producer_config['sasl_mechanism'] = sasl_mechanism
+                producer_config['sasl_plain_username'] = config.get('kafka.sasl_username')
+                producer_config['sasl_plain_password'] = config.get('kafka.sasl_password')
+
+            self.producer = KafkaProducer(**producer_config)
+
+            # Load routing configuration
+            self._load_routing_config()
+
+            logger.info("Connected to Kafka cluster successfully")
+            return True
+
+        except NoBrokersAvailable as e:
+            logger.error(f"No Kafka brokers available: {e}")
+            return False
+        except KafkaError as e:
+            logger.error(f"Kafka connection error: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error connecting to Kafka: {e}")
+            return False
+
+    def _load_routing_config(self):
+        """Load routing rules from configuration."""
+        strategy = config.get('kafka.routing.strategy', 'static')
+        self.routing_strategy = RoutingStrategy(strategy.lower())
+        self.default_topic = config.get('kafka.routing.default_topic', 'logs')
+
+        # Load custom rules
+        self.routing_rules = config.get_routing_rules()
+
+        # Add built-in routing rules based on strategy
+        if self.routing_strategy == RoutingStrategy.BY_LEVEL:
+            self.routing_rules.append(RoutingRule(
+                name='level_routing',
+                field='level',
+                values={
+                    'ERROR': 'logs-errors',
+                    'FATAL': 'logs-errors',
+                    'WARN': 'logs-warnings',
+                    'INFO': 'logs-info',
+                    'DEBUG': 'logs-debug'
+                },
+                default_topic=self.default_topic,
+                priority=100
+            ))
+        elif self.routing_strategy == RoutingStrategy.BY_SERVICE:
+            # Dynamic routing by service name
+            pass  # Handled in route_to_topic
+        elif self.routing_strategy == RoutingStrategy.BY_DATACENTER:
+            pass  # Handled in route_to_topic
+        elif self.routing_strategy == RoutingStrategy.BY_LOG_TYPE:
+            self.routing_rules.append(RoutingRule(
+                name='log_type_routing',
+                field='log_type',
+                values={
+                    'application': 'logs-application',
+                    'access': 'logs-access',
+                    'metric': 'logs-metrics'
+                },
+                default_topic=self.default_topic,
+                priority=100
+            ))
+        elif self.routing_strategy == RoutingStrategy.BY_ENVIRONMENT:
+            self.routing_rules.append(RoutingRule(
+                name='environment_routing',
+                field='service.environment',
+                values={
+                    'production': 'logs-prod',
+                    'staging': 'logs-staging',
+                    'development': 'logs-dev'
+                },
+                default_topic=self.default_topic,
+                priority=100
+            ))
+
+        logger.info(f"Routing strategy: {self.routing_strategy.value}, "
+                   f"default topic: {self.default_topic}, "
+                   f"{len(self.routing_rules)} custom rules")
+
+    def _get_nested_value(self, data: Dict[str, Any], field: str) -> Any:
+        """Get a value from nested dictionary using dot notation."""
+        value = data
+        for part in field.split('.'):
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return None
+        return value
+
+    def route_to_topic(self, log: Dict[str, Any]) -> str:
+        """Determine the target topic for a log entry based on routing rules."""
+        # Check static strategy first
+        if self.routing_strategy == RoutingStrategy.STATIC:
+            return self.default_topic
+
+        # Dynamic routing strategies
+        if self.routing_strategy == RoutingStrategy.BY_SERVICE:
+            service_name = self._get_nested_value(log, 'service.name')
+            if service_name:
+                return f"logs-{service_name}"
+            return self.default_topic
+
+        if self.routing_strategy == RoutingStrategy.BY_DATACENTER:
+            datacenter = self._get_nested_value(log, 'host.datacenter')
+            if datacenter:
+                # Convert dc-us-east-1 to logs-us-east-1
+                dc_name = datacenter.replace('dc-', '')
+                return f"logs-{dc_name}"
+            return self.default_topic
+
+        # Apply custom routing rules
+        for rule in self.routing_rules:
+            field_value = self._get_nested_value(log, rule.field)
+            if field_value and str(field_value) in rule.values:
+                return rule.values[str(field_value)]
+
+        return self.default_topic
+
+    def get_partition_key(self, log: Dict[str, Any]) -> Optional[str]:
+        """Generate a partition key for consistent routing."""
+        key_field = config.get('kafka.partition_key_field', 'service.name')
+        key_value = self._get_nested_value(log, key_field)
+        return str(key_value) if key_value else None
+
+    def send(self, log: Dict[str, Any]) -> bool:
+        """Send a log entry to the appropriate Kafka topic."""
+        if not self.producer:
+            return False
+
+        topic = self.route_to_topic(log)
+        key = self.get_partition_key(log)
+
+        try:
+            future = self.producer.send(topic, value=log, key=key)
+            # Don't wait for result (async), but track it
+            future.add_callback(lambda _: self._on_send_success(topic))
+            future.add_errback(lambda e: self._on_send_error(topic, e))
+
+            # Track topic stats
+            self._topic_stats[topic] = self._topic_stats.get(topic, 0) + 1
+            return True
+
+        except KafkaError as e:
+            logger.error(f"Failed to send to Kafka topic {topic}: {e}")
+            return False
+
+    def _on_send_success(self, topic: str):
+        """Callback for successful send."""
+        pass  # Could add metrics here
+
+    def _on_send_error(self, topic: str, error):
+        """Callback for failed send."""
+        logger.warning(f"Kafka send to {topic} failed: {error}")
+
+    def send_batch(self, logs: List[Dict[str, Any]]) -> int:
+        """Send a batch of logs to Kafka."""
+        if not self.producer:
+            return 0
+
+        success_count = 0
+        for log in logs:
+            if self.send(log):
+                success_count += 1
+
+        # Flush to ensure all messages are sent
+        self.producer.flush()
+        return success_count
+
+    def get_topic_stats(self) -> Dict[str, int]:
+        """Get statistics about messages sent to each topic."""
+        return self._topic_stats.copy()
+
+    def close(self):
+        """Close the Kafka producer."""
+        if self.producer:
+            self.producer.flush()
+            self.producer.close()
+            logger.info("Kafka producer closed")
 
 
 # ============================================================================
@@ -701,6 +1265,15 @@ def ensure_index_template(es_manager: ElasticsearchManager):
                             'span_id': {'type': 'keyword'}
                         }
                     },
+                    'correlation': {
+                        'properties': {
+                            'id': {'type': 'keyword'},
+                            'chain_depth': {'type': 'integer'},
+                            'parent_span_id': {'type': 'keyword'},
+                            'root_span_id': {'type': 'keyword'},
+                            'is_root': {'type': 'boolean'}
+                        }
+                    },
                     'http': {
                         'properties': {
                             'request': {
@@ -735,6 +1308,51 @@ def ensure_index_template(es_manager: ElasticsearchManager):
                             'type': {'type': 'keyword'},
                             'message': {'type': 'text'},
                             'stack_trace': {'type': 'text'}
+                        }
+                    },
+                    'business': {
+                        'properties': {
+                            'transaction_id': {'type': 'keyword'},
+                            'customer_segment': {'type': 'keyword'},
+                            'region': {'type': 'keyword'},
+                            'channel': {'type': 'keyword'},
+                            'order_value': {'type': 'float'},
+                            'currency': {'type': 'keyword'}
+                        }
+                    },
+                    'sla': {
+                        'properties': {
+                            'tier': {'type': 'keyword'},
+                            'latency_budget_ms': {'type': 'integer'},
+                            'availability_target': {'type': 'float'},
+                            'breach': {'type': 'boolean'},
+                            'remaining_budget_ms': {'type': 'integer'}
+                        }
+                    },
+                    'sli': {
+                        'properties': {
+                            'latency_category': {'type': 'keyword'},
+                            'success': {'type': 'boolean'},
+                            'error_budget_impact': {'type': 'integer'}
+                        }
+                    },
+                    'cost': {
+                        'properties': {
+                            'center': {'type': 'keyword'},
+                            'team': {'type': 'keyword'},
+                            'project': {'type': 'keyword'},
+                            'estimated_compute_cost': {'type': 'float'},
+                            'resource_tier': {'type': 'keyword'}
+                        }
+                    },
+                    'security': {
+                        'properties': {
+                            'authenticated': {'type': 'boolean'},
+                            'auth_method': {'type': 'keyword'},
+                            'user_role': {'type': 'keyword'},
+                            'ip_reputation': {'type': 'keyword'},
+                            'geo_risk': {'type': 'keyword'},
+                            'session_age_minutes': {'type': 'integer'}
                         }
                     },
                     'system': {
@@ -812,31 +1430,47 @@ def bulk_index_logs(es_manager: ElasticsearchManager, logs: List[Dict[str, Any]]
 # MAIN
 # ============================================================================
 
-def print_config_info(args):
+def print_config_info(args, injection_target: InjectionTarget, kafka_enabled: bool):
     """Print current configuration info."""
     index_prefix = config.get('elasticsearch.index_prefix', 'logs', env_key='INDEX_PREFIX')
-    hosts = config.get_list('elasticsearch.hosts', env_key='ES_HOSTS')
-    if not hosts:
-        hosts = [config.get('elasticsearch.host', 'https://es01:9200', env_key='ES_HOST')]
+    es_hosts = config.get_list('elasticsearch.hosts', env_key='ES_HOSTS')
+    if not es_hosts:
+        es_hosts = [config.get('elasticsearch.host', 'https://es01:9200', env_key='ES_HOST')]
 
-    logger.info("=" * 60)
+    kafka_servers = config.get_list('kafka.bootstrap_servers', env_key='KAFKA_BOOTSTRAP_SERVERS')
+    routing_strategy = config.get('kafka.routing.strategy', 'static')
+
+    logger.info("=" * 70)
     logger.info("Log Injector Starting")
-    logger.info("=" * 60)
-    logger.info(f"ES Hosts: {hosts}")
+    logger.info("=" * 70)
+    logger.info(f"Injection Target: {injection_target.value}")
     logger.info(f"Injection Rate: {args.rate} logs/second")
-    logger.info(f"Index Prefix: {index_prefix}")
     logger.info(f"Batch Size: {args.batch_size}")
+
+    if injection_target in [InjectionTarget.ELASTICSEARCH, InjectionTarget.BOTH]:
+        logger.info(f"ES Hosts: {es_hosts}")
+        logger.info(f"Index Prefix: {index_prefix}")
+
+    if injection_target in [InjectionTarget.KAFKA, InjectionTarget.BOTH]:
+        logger.info(f"Kafka Servers: {kafka_servers}")
+        logger.info(f"Routing Strategy: {routing_strategy}")
+
+    enrichment_config = config.get_enrichment_config()
+    logger.info(f"Enrichment: business={enrichment_config.add_business_context}, "
+               f"sla={enrichment_config.add_sla_metadata}, "
+               f"correlation={enrichment_config.add_correlation_chain}")
+
     if args.duration:
         logger.info(f"Duration: {args.duration} seconds")
     else:
         logger.info("Duration: Infinite (Ctrl+C to stop)")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
 
 
 def main():
     global config
 
-    parser = argparse.ArgumentParser(description='Inject logs into Elasticsearch')
+    parser = argparse.ArgumentParser(description='Inject logs into Elasticsearch and/or Kafka')
     parser.add_argument('--config', '-c', type=str,
                        help='Path to YAML configuration file')
     parser.add_argument('--rate', type=int,
@@ -847,33 +1481,79 @@ def main():
     parser.add_argument('--batch-size', type=int,
                        default=config.get_int('injection.batch_size', 100, env_key='BATCH_SIZE'),
                        help='Batch size for bulk indexing (default: 100)')
+    parser.add_argument('--target', type=str,
+                       default=config.get('injection.target', 'elasticsearch', env_key='INJECTION_TARGET'),
+                       choices=['elasticsearch', 'kafka', 'both'],
+                       help='Injection target (default: elasticsearch)')
+    parser.add_argument('--no-enrichment', action='store_true',
+                       help='Disable log enrichment')
     args = parser.parse_args()
 
     # Reload config if config file specified
     if args.config:
         config = Config(args.config)
 
-    print_config_info(args)
+    # Determine injection target
+    injection_target = InjectionTarget(args.target.lower())
+    kafka_enabled = injection_target in [InjectionTarget.KAFKA, InjectionTarget.BOTH]
+    es_enabled = injection_target in [InjectionTarget.ELASTICSEARCH, InjectionTarget.BOTH]
 
-    # Create ES manager and connect
-    es_manager = ElasticsearchManager()
+    print_config_info(args, injection_target, kafka_enabled)
 
-    logger.info("Connecting to Elasticsearch...")
-    if not es_manager.wait_for_ready():
+    # Initialize enricher
+    enricher = None
+    if not args.no_enrichment:
+        enrichment_config = config.get_enrichment_config()
+        enricher = LogEnricher(enrichment_config)
+        logger.info("Log enrichment enabled")
+
+    # Create managers and connect
+    es_manager = None
+    kafka_manager = None
+
+    if es_enabled:
+        es_manager = ElasticsearchManager()
+        logger.info("Connecting to Elasticsearch...")
+        if not es_manager.wait_for_ready():
+            if injection_target == InjectionTarget.ELASTICSEARCH:
+                sys.exit(1)
+            else:
+                logger.warning("Elasticsearch not available, continuing with Kafka only")
+                es_manager = None
+        else:
+            # Create index template
+            ensure_index_template(es_manager)
+
+    if kafka_enabled:
+        if not KAFKA_AVAILABLE:
+            logger.error("kafka-python not installed. Install with: pip install kafka-python")
+            if injection_target == InjectionTarget.KAFKA:
+                sys.exit(1)
+        else:
+            kafka_manager = KafkaManager()
+            logger.info("Connecting to Kafka...")
+            if not kafka_manager.connect():
+                if injection_target == InjectionTarget.KAFKA:
+                    sys.exit(1)
+                else:
+                    logger.warning("Kafka not available, continuing with Elasticsearch only")
+                    kafka_manager = None
+
+    # Verify at least one output is available
+    if not es_manager and not kafka_manager:
+        logger.error("No output targets available. Exiting.")
         sys.exit(1)
-
-    # Create index template
-    ensure_index_template(es_manager)
 
     # Start injection
     logger.info("Starting log injection...")
     start_time = time.time()
-    total_indexed = 0
+    total_indexed_es = 0
+    total_indexed_kafka = 0
     batch: List[Dict[str, Any]] = []
     last_status_time = start_time
 
     interval = 1.0 / args.rate if args.rate > 0 else 0.1
-    gen = log_generator()
+    gen = log_generator(enricher)
 
     try:
         while not shutdown_requested:
@@ -892,15 +1572,26 @@ def main():
 
             # Index when batch is full
             if len(batch) >= args.batch_size:
-                indexed = bulk_index_logs(es_manager, batch)
-                total_indexed += indexed
+                if es_manager:
+                    indexed = bulk_index_logs(es_manager, batch)
+                    total_indexed_es += indexed
+
+                if kafka_manager:
+                    indexed = kafka_manager.send_batch(batch)
+                    total_indexed_kafka += indexed
 
                 # Log status periodically (every 10 seconds)
                 current_time = time.time()
                 if current_time - last_status_time >= 10:
                     elapsed = current_time - start_time
-                    rate = total_indexed / elapsed if elapsed > 0 else 0
-                    logger.info(f"Indexed {total_indexed} logs ({rate:.1f} logs/sec)")
+                    if es_manager:
+                        rate_es = total_indexed_es / elapsed if elapsed > 0 else 0
+                        logger.info(f"ES: {total_indexed_es} logs ({rate_es:.1f}/sec)")
+                    if kafka_manager:
+                        rate_kafka = total_indexed_kafka / elapsed if elapsed > 0 else 0
+                        topic_stats = kafka_manager.get_topic_stats()
+                        logger.info(f"Kafka: {total_indexed_kafka} logs ({rate_kafka:.1f}/sec), "
+                                   f"topics: {topic_stats}")
                     last_status_time = current_time
 
                 batch = []
@@ -914,19 +1605,31 @@ def main():
     finally:
         # Index remaining logs
         if batch:
-            indexed = bulk_index_logs(es_manager, batch)
-            total_indexed += indexed
+            if es_manager:
+                indexed = bulk_index_logs(es_manager, batch)
+                total_indexed_es += indexed
+            if kafka_manager:
+                indexed = kafka_manager.send_batch(batch)
+                total_indexed_kafka += indexed
+
+        # Close Kafka producer
+        if kafka_manager:
+            kafka_manager.close()
 
         elapsed = time.time() - start_time
-        rate = total_indexed / elapsed if elapsed > 0 else 0
 
-        logger.info("=" * 60)
+        logger.info("=" * 70)
         logger.info("Log Injection Complete")
-        logger.info("=" * 60)
-        logger.info(f"Total logs indexed: {total_indexed}")
+        logger.info("=" * 70)
+        if es_manager:
+            rate_es = total_indexed_es / elapsed if elapsed > 0 else 0
+            logger.info(f"Elasticsearch: {total_indexed_es} logs ({rate_es:.1f}/sec)")
+        if kafka_manager:
+            rate_kafka = total_indexed_kafka / elapsed if elapsed > 0 else 0
+            logger.info(f"Kafka: {total_indexed_kafka} logs ({rate_kafka:.1f}/sec)")
+            logger.info(f"Topic distribution: {kafka_manager.get_topic_stats()}")
         logger.info(f"Duration: {elapsed:.1f} seconds")
-        logger.info(f"Average rate: {rate:.1f} logs/second")
-        logger.info("=" * 60)
+        logger.info("=" * 70)
 
 
 if __name__ == '__main__':
