@@ -856,7 +856,7 @@ def log_generator(enricher: Optional[LogEnricher] = None) -> Generator[Dict[str,
 # ============================================================================
 
 class KafkaManager:
-    """Manages Kafka producer with topic routing based on criteria."""
+    """Manages Kafka producer with topic routing based on criteria and metrics."""
 
     def __init__(self):
         self.producer: Optional[KafkaProducer] = None
@@ -864,6 +864,21 @@ class KafkaManager:
         self.default_topic: str = 'logs'
         self.routing_strategy: RoutingStrategy = RoutingStrategy.STATIC
         self._topic_stats: Dict[str, int] = {}
+        # Producer metrics
+        self._metrics: Dict[str, Any] = {
+            'messages_sent': 0,
+            'messages_failed': 0,
+            'bytes_sent': 0,
+            'send_latency_sum_ms': 0,
+            'send_latency_count': 0,
+            'batch_count': 0,
+            'last_error': None,
+            'last_error_time': None,
+            'start_time': None,
+        }
+        # Header routing configuration
+        self._header_routing_enabled: bool = False
+        self._header_routing_rules: Dict[str, Dict[str, str]] = {}
 
     def _get_bootstrap_servers(self) -> List[str]:
         """Get Kafka bootstrap servers from configuration."""
@@ -911,6 +926,12 @@ class KafkaManager:
 
             # Load routing configuration
             self._load_routing_config()
+
+            # Load header routing configuration
+            self._load_header_routing_config()
+
+            # Initialize metrics start time
+            self._metrics['start_time'] = time.time()
 
             logger.info("Connected to Kafka cluster successfully")
             return True
@@ -983,6 +1004,99 @@ class KafkaManager:
                    f"default topic: {self.default_topic}, "
                    f"{len(self.routing_rules)} custom rules")
 
+    def _load_header_routing_config(self):
+        """Load header-based routing configuration."""
+        self._header_routing_enabled = config.get_bool('kafka.header_routing.enabled', False)
+        if not self._header_routing_enabled:
+            return
+
+        # Load header routing rules
+        # Format: { "header_name": { "header_value": "target_topic" } }
+        self._header_routing_rules = config.get_dict('kafka.header_routing.rules', {
+            'X-Priority': {
+                'critical': 'logs-critical',
+                'high': 'logs-errors',
+                'normal': 'logs',
+                'low': 'logs-debug'
+            },
+            'X-Environment': {
+                'production': 'logs-prod',
+                'staging': 'logs-staging',
+                'development': 'logs-dev'
+            },
+            'X-Log-Type': {
+                'audit': 'logs-audit',
+                'security': 'logs-security',
+                'performance': 'logs-performance'
+            }
+        })
+
+        logger.info(f"Header routing enabled with {len(self._header_routing_rules)} header rules")
+
+    def generate_headers(self, log: Dict[str, Any]) -> List[Tuple[str, bytes]]:
+        """Generate Kafka headers from log entry for downstream routing."""
+        headers = []
+
+        # Add standard headers
+        headers.append(('X-Log-Level', log.get('level', 'INFO').encode('utf-8')))
+        headers.append(('X-Log-Type', log.get('log_type', 'application').encode('utf-8')))
+
+        # Add service info
+        service_name = self._get_nested_value(log, 'service.name')
+        if service_name:
+            headers.append(('X-Service-Name', service_name.encode('utf-8')))
+
+        service_env = self._get_nested_value(log, 'service.environment')
+        if service_env:
+            headers.append(('X-Environment', service_env.encode('utf-8')))
+
+        # Add datacenter
+        datacenter = self._get_nested_value(log, 'host.datacenter')
+        if datacenter:
+            headers.append(('X-Datacenter', datacenter.encode('utf-8')))
+
+        # Add trace ID for correlation
+        trace_id = self._get_nested_value(log, 'trace.id')
+        if trace_id:
+            headers.append(('X-Trace-ID', trace_id.encode('utf-8')))
+
+        # Add priority based on log level and SLA breach
+        priority = 'normal'
+        level = log.get('level', 'INFO')
+        if level in ['ERROR', 'FATAL']:
+            priority = 'high'
+        elif level == 'DEBUG':
+            priority = 'low'
+
+        sla_breach = self._get_nested_value(log, 'sla.breach')
+        if sla_breach:
+            priority = 'critical'
+
+        headers.append(('X-Priority', priority.encode('utf-8')))
+
+        # Add timestamp
+        headers.append(('X-Timestamp', log.get('@timestamp', '').encode('utf-8')))
+
+        # Add producer metadata
+        headers.append(('X-Producer', 'log-injector'.encode('utf-8')))
+        headers.append(('X-Producer-Version', '2.0'.encode('utf-8')))
+
+        return headers
+
+    def route_by_headers(self, headers: List[Tuple[str, bytes]]) -> Optional[str]:
+        """Route to topic based on headers."""
+        if not self._header_routing_enabled:
+            return None
+
+        headers_dict = {h[0]: h[1].decode('utf-8') for h in headers}
+
+        for header_name, routing_map in self._header_routing_rules.items():
+            header_value = headers_dict.get(header_name)
+            if header_value and header_value in routing_map:
+                return routing_map[header_value]
+
+        return None
+
     def _get_nested_value(self, data: Dict[str, Any], field: str) -> Any:
         """Get a value from nested dictionary using dot notation."""
         value = data
@@ -1029,17 +1143,30 @@ class KafkaManager:
         return str(key_value) if key_value else None
 
     def send(self, log: Dict[str, Any]) -> bool:
-        """Send a log entry to the appropriate Kafka topic."""
+        """Send a log entry to the appropriate Kafka topic with headers."""
         if not self.producer:
             return False
 
-        topic = self.route_to_topic(log)
+        start_time = time.time()
+
+        # Generate headers
+        headers = self.generate_headers(log)
+
+        # Determine topic - header routing takes precedence if enabled
+        topic = self.route_by_headers(headers)
+        if not topic:
+            topic = self.route_to_topic(log)
+
         key = self.get_partition_key(log)
 
         try:
-            future = self.producer.send(topic, value=log, key=key)
+            # Serialize log to calculate size
+            log_bytes = json.dumps(log).encode('utf-8')
+            message_size = len(log_bytes)
+
+            future = self.producer.send(topic, value=log, key=key, headers=headers)
             # Don't wait for result (async), but track it
-            future.add_callback(lambda _: self._on_send_success(topic))
+            future.add_callback(lambda metadata: self._on_send_success(topic, metadata, message_size, start_time))
             future.add_errback(lambda e: self._on_send_error(topic, e))
 
             # Track topic stats
@@ -1047,15 +1174,25 @@ class KafkaManager:
             return True
 
         except KafkaError as e:
+            self._metrics['messages_failed'] += 1
+            self._metrics['last_error'] = str(e)
+            self._metrics['last_error_time'] = datetime.now(timezone.utc).isoformat()
             logger.error(f"Failed to send to Kafka topic {topic}: {e}")
             return False
 
-    def _on_send_success(self, topic: str):
-        """Callback for successful send."""
-        pass  # Could add metrics here
+    def _on_send_success(self, topic: str, metadata, message_size: int, start_time: float):
+        """Callback for successful send with metrics tracking."""
+        latency_ms = (time.time() - start_time) * 1000
+        self._metrics['messages_sent'] += 1
+        self._metrics['bytes_sent'] += message_size
+        self._metrics['send_latency_sum_ms'] += latency_ms
+        self._metrics['send_latency_count'] += 1
 
     def _on_send_error(self, topic: str, error):
-        """Callback for failed send."""
+        """Callback for failed send with metrics tracking."""
+        self._metrics['messages_failed'] += 1
+        self._metrics['last_error'] = str(error)
+        self._metrics['last_error_time'] = datetime.now(timezone.utc).isoformat()
         logger.warning(f"Kafka send to {topic} failed: {error}")
 
     def send_batch(self, logs: List[Dict[str, Any]]) -> int:
@@ -1075,6 +1212,57 @@ class KafkaManager:
     def get_topic_stats(self) -> Dict[str, int]:
         """Get statistics about messages sent to each topic."""
         return self._topic_stats.copy()
+
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive producer metrics."""
+        metrics = self._metrics.copy()
+
+        # Calculate derived metrics
+        if metrics['send_latency_count'] > 0:
+            metrics['avg_send_latency_ms'] = metrics['send_latency_sum_ms'] / metrics['send_latency_count']
+        else:
+            metrics['avg_send_latency_ms'] = 0
+
+        if metrics['start_time']:
+            uptime_seconds = time.time() - metrics['start_time']
+            metrics['uptime_seconds'] = uptime_seconds
+            if uptime_seconds > 0:
+                metrics['messages_per_second'] = metrics['messages_sent'] / uptime_seconds
+                metrics['bytes_per_second'] = metrics['bytes_sent'] / uptime_seconds
+            else:
+                metrics['messages_per_second'] = 0
+                metrics['bytes_per_second'] = 0
+
+        metrics['success_rate'] = (
+            metrics['messages_sent'] / (metrics['messages_sent'] + metrics['messages_failed'])
+            if (metrics['messages_sent'] + metrics['messages_failed']) > 0
+            else 1.0
+        )
+
+        metrics['topic_distribution'] = self._topic_stats.copy()
+        metrics['header_routing_enabled'] = self._header_routing_enabled
+
+        return metrics
+
+    def print_metrics(self):
+        """Print formatted metrics to logger."""
+        metrics = self.get_metrics()
+        logger.info("=" * 60)
+        logger.info("KAFKA PRODUCER METRICS")
+        logger.info("=" * 60)
+        logger.info(f"Messages sent:     {metrics['messages_sent']:,}")
+        logger.info(f"Messages failed:   {metrics['messages_failed']:,}")
+        logger.info(f"Success rate:      {metrics['success_rate']:.2%}")
+        logger.info(f"Bytes sent:        {metrics['bytes_sent']:,}")
+        logger.info(f"Avg latency:       {metrics['avg_send_latency_ms']:.2f} ms")
+        logger.info(f"Messages/sec:      {metrics.get('messages_per_second', 0):.2f}")
+        logger.info(f"Bytes/sec:         {metrics.get('bytes_per_second', 0):.2f}")
+        logger.info(f"Header routing:    {'enabled' if metrics['header_routing_enabled'] else 'disabled'}")
+        logger.info("-" * 60)
+        logger.info("Topic distribution:")
+        for topic, count in sorted(metrics['topic_distribution'].items(), key=lambda x: -x[1]):
+            logger.info(f"  {topic}: {count:,}")
+        logger.info("=" * 60)
 
     def close(self):
         """Close the Kafka producer."""
