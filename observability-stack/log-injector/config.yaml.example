@@ -126,6 +126,38 @@ kafka:
         default_topic: logs
         priority: 95
 
+  # ============================================================================
+  # Header-Based Routing Configuration
+  # ============================================================================
+  # Enable routing based on Kafka message headers
+  # Headers are automatically generated from log fields
+  header_routing:
+    # Enable/disable header-based routing (takes precedence over strategy routing)
+    enabled: false
+
+    # Header routing rules: map header values to topics
+    # Format: { "header_name": { "header_value": "target_topic" } }
+    rules:
+      # Route by priority header (auto-generated from log level + SLA breach)
+      X-Priority:
+        critical: logs-critical
+        high: logs-errors
+        normal: logs
+        low: logs-debug
+
+      # Route by environment header
+      X-Environment:
+        production: logs-prod
+        staging: logs-staging
+        development: logs-dev
+
+      # Route by log type header
+      X-Log-Type:
+        audit: logs-audit
+        security: logs-security
+        performance: logs-performance
+        metric: logs-metrics
+
 # ============================================================================
 # Injection Settings
 # ============================================================================

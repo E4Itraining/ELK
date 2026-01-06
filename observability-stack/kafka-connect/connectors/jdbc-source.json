@@ -1,0 +1,33 @@
+{
+  "name": "jdbc-source-audit-logs",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+    "tasks.max": "1",
+
+    "connection.url": "jdbc:postgresql://${env:DB_HOST:-postgres}:${env:DB_PORT:-5432}/${env:DB_NAME:-app}",
+    "connection.user": "${env:DB_USER:-postgres}",
+    "connection.password": "${env:DB_PASSWORD:-postgres}",
+
+    "table.whitelist": "audit_logs,user_events,system_events",
+    "mode": "timestamp+incrementing",
+    "timestamp.column.name": "created_at",
+    "incrementing.column.name": "id",
+
+    "topic.prefix": "db-",
+
+    "poll.interval.ms": "5000",
+    "batch.max.rows": "1000",
+
+    "transforms": "createKey,extractInt",
+    "transforms.createKey.type": "org.apache.kafka.connect.transforms.ValueToKey",
+    "transforms.createKey.fields": "id",
+    "transforms.extractInt.type": "org.apache.kafka.connect.transforms.ExtractField$Key",
+    "transforms.extractInt.field": "id",
+
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "dlq-jdbc-source",
+    "errors.deadletterqueue.topic.replication.factor": 3,
+    "errors.log.enable": true,
+    "errors.log.include.messages": true
+  }
+}
