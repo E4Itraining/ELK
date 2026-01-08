@@ -8,7 +8,7 @@ cluster and/or Kafka topics for testing and demonstration purposes.
 Features:
 - Multi-host support with automatic failover for Elasticsearch
 - Kafka producer with criteria-based topic routing
-- Compatible with Elasticsearch 8.x and 9.x
+- Compatible with Elasticsearch 8.x
 - Configurable via environment variables or YAML config file
 - Continuous injection with automatic reconnection
 - Log enrichment with business context, SLA metadata, and correlation IDs
@@ -1168,10 +1168,10 @@ class ElasticsearchManager:
             logger.info(f"Connected to Elasticsearch {self.es_version}")
 
             # Log compatibility info
-            if self.es_major_version >= 9:
-                logger.info("Running in Elasticsearch 9.x compatibility mode")
-            elif self.es_major_version >= 8:
+            if self.es_major_version >= 8:
                 logger.info("Running in Elasticsearch 8.x compatibility mode")
+            else:
+                logger.warning("Elasticsearch version < 8.x detected - some features may not work")
 
             return True
 
@@ -1229,7 +1229,7 @@ def ensure_index_template(es_manager: ElasticsearchManager):
     index_prefix = config.get('elasticsearch.index_prefix', 'logs', env_key='INDEX_PREFIX')
     template_name = f'{index_prefix}-template'
 
-    # Template body - compatible with ES 8.x and 9.x
+    # Template body - compatible with ES 8.x
     template_body = {
         'index_patterns': [f'{index_prefix}-*'],
         'template': {
