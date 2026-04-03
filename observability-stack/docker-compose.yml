@@ -582,6 +582,234 @@ services:
       - "observability.component=kafka-exporter"
 
   # ==========================================================================
+  # SCHEMA REGISTRY (Avro/Protobuf/JSON Schema Management)
+  # ==========================================================================
+  schema-registry:
+    image: confluentinc/cp-schema-registry:${KAFKA_VERSION:-7.5.0}
+    container_name: schema-registry
+    hostname: schema-registry
+    depends_on:
+      kafka01:
+        condition: service_healthy
+      kafka02:
+        condition: service_healthy
+      kafka03:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka01:9092,kafka02:9092,kafka03:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 3
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+      SCHEMA_REGISTRY_DEBUG: "false"
+      # Security settings (uncomment when SASL/SSL is enabled)
+      # SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SASL_SSL
+      # SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: PLAIN
+      # SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.plain.PlainLoginModule required username='schemaregistry' password='schema-secret';"
+    ports:
+      - ${SCHEMA_REGISTRY_PORT:-8081}:8081
+    networks:
+      - elastic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "observability.component=schema-registry"
+
+  # ==========================================================================
+  # KAFKA CONNECT (Distributed Mode)
+  # ==========================================================================
+  kafka-connect:
+    build:
+      context: ./kafka-connect
+      dockerfile: Dockerfile
+      args:
+        CONFLUENT_VERSION: ${KAFKA_VERSION:-7.5.0}
+    image: kafka-connect-custom:${KAFKA_VERSION:-7.5.0}
+    container_name: kafka-connect
+    hostname: kafka-connect
+    depends_on:
+      kafka01:
+        condition: service_healthy
+      kafka02:
+        condition: service_healthy
+      kafka03:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka01:9092,kafka02:9092,kafka03:9092
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_GROUP_ID: connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      # DLQ Configuration
+      CONNECT_ERRORS_TOLERANCE: all
+      CONNECT_ERRORS_DEADLETTERQUEUE_TOPIC_NAME: dlq-connect
+      CONNECT_ERRORS_DEADLETTERQUEUE_TOPIC_REPLICATION_FACTOR: 3
+      CONNECT_ERRORS_DEADLETTERQUEUE_CONTEXT_HEADERS_ENABLE: "true"
+      CONNECT_ERRORS_LOG_ENABLE: "true"
+      CONNECT_ERRORS_LOG_INCLUDE_MESSAGES: "true"
+      # Producer settings
+      CONNECT_PRODUCER_ACKS: all
+      CONNECT_PRODUCER_COMPRESSION_TYPE: lz4
+      # Consumer settings
+      CONNECT_CONSUMER_AUTO_OFFSET_RESET: earliest
+      # Elasticsearch credentials
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+    volumes:
+      - ./kafka-connect/connectors:/etc/kafka-connect/connectors:ro
+      - certs:/app/certs:ro
+    ports:
+      - ${KAFKA_CONNECT_PORT:-8083}:8083
+    networks:
+      - elastic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    labels:
+      - "observability.component=kafka-connect"
+    profiles:
+      - connect
+
+  # ==========================================================================
+  # KSQLDB SERVER (Stream Processing)
+  # ==========================================================================
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:${KAFKA_VERSION:-7.5.0}
+    container_name: ksqldb-server
+    hostname: ksqldb-server
+    depends_on:
+      kafka01:
+        condition: service_healthy
+      kafka02:
+        condition: service_healthy
+      kafka03:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KSQL_BOOTSTRAP_SERVERS: kafka01:9092,kafka02:9092,kafka03:9092
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_SERVICE_ID: default_
+      KSQL_KSQL_STREAMS_AUTO_OFFSET_RESET: earliest
+      KSQL_KSQL_STREAMS_COMMIT_INTERVAL_MS: 2000
+      KSQL_KSQL_STREAMS_NUM_STREAM_THREADS: 4
+      KSQL_KSQL_INTERNAL_TOPIC_REPLICAS: 3
+      KSQL_KSQL_INTERNAL_TOPIC_MIN_INSYNC_REPLICAS: 2
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 3
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_ROWS_INCLUDE: "true"
+      KSQL_KSQL_STREAMS_PRODUCER_ACKS: all
+      KSQL_KSQL_STREAMS_PRODUCER_RETRIES: 2147483647
+      KSQL_HEAP_OPTS: "-Xms${KSQL_HEAP_SIZE:-512m} -Xmx${KSQL_HEAP_SIZE:-512m}"
+    volumes:
+      - ./ksqldb/ksql-server.properties:/etc/ksqldb/ksql-server.properties:ro
+      - ksqldb_data:/var/lib/ksqldb/data
+    ports:
+      - ${KSQL_PORT:-8088}:8088
+    networks:
+      - elastic
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8088/info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    labels:
+      - "observability.component=ksqldb-server"
+    profiles:
+      - ksql
+
+  # ==========================================================================
+  # KSQLDB CLI (Interactive Client)
+  # ==========================================================================
+  ksqldb-cli:
+    image: confluentinc/cp-ksqldb-cli:${KAFKA_VERSION:-7.5.0}
+    container_name: ksqldb-cli
+    depends_on:
+      ksqldb-server:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    tty: true
+    networks:
+      - elastic
+    labels:
+      - "observability.component=ksqldb-cli"
+    profiles:
+      - ksql
+
+  # ==========================================================================
+  # KAFKA TOPIC INITIALIZATION (One-shot)
+  # ==========================================================================
+  kafka-init:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.5.0}
+    container_name: kafka-init
+    depends_on:
+      kafka01:
+        condition: service_healthy
+      kafka02:
+        condition: service_healthy
+      kafka03:
+        condition: service_healthy
+    volumes:
+      - ./kafka/init-topics.sh:/init-topics.sh:ro
+    command: ["/bin/bash", "/init-topics.sh"]
+    networks:
+      - elastic
+    profiles:
+      - init
+
+  # ==========================================================================
+  # MIRRORMAKER 2 (Multi-Cluster Replication)
+  # ==========================================================================
+  mirrormaker:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.5.0}
+    container_name: mirrormaker
+    hostname: mirrormaker
+    depends_on:
+      kafka01:
+        condition: service_healthy
+    environment:
+      # MirrorMaker will be configured via the properties file
+      KAFKA_HEAP_OPTS: "-Xms${MM2_HEAP_SIZE:-256m} -Xmx${MM2_HEAP_SIZE:-256m}"
+    volumes:
+      - ./kafka/mirrormaker/mm2.properties:/etc/kafka/mm2.properties:ro
+    command: ["connect-mirror-maker", "/etc/kafka/mm2.properties"]
+    networks:
+      - elastic
+    restart: unless-stopped
+    labels:
+      - "observability.component=mirrormaker"
+    profiles:
+      - mirror
+
+  # ==========================================================================
   # LOGSTASH
   # ==========================================================================
   logstash:
@@ -999,4 +1227,8 @@ volumes:
   grafana_data:
     driver: local
   metricbeat_data:
+    driver: local
+  ksqldb_data:
+    driver: local
+  connect_data:
     driver: local
